@@ -20,7 +20,7 @@ def keep_alive():
     t.start()
 
 # Токен бота
-TOKEN = "MTQzMzU3OTUzMjYzNTQ3MTk2Mw.GBFLjB.yceb2OwgBZNR4qXch4kBRjq5OXw-lSvJN6LVTI"
+TOKEN = "MTQzMzU3OTUzMjYzNTQ3MTk2Mw.GxI2PC.Ba4XUXwWhkKzxJ4I_t9vlTcJd2SPPaeOxY_Kks"
 
 intents = discord.Intents.default()
 intents.message_content = True
