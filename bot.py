@@ -19,8 +19,8 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# Токен бота
-TOKEN = "MTQzMzU3OTUzMjYzNTQ3MTk2Mw.GxI2PC.Ba4XUXwWhkKzxJ4I_t9vlTcJd2SPPaeOxY_Kks"
+# Безопасное получение токена из переменных окружения
+TOKEN = os.getenv('DISCORD_TOKEN')
 
 intents = discord.Intents.default()
 intents.message_content = True
