@@ -293,8 +293,14 @@ class ActiveLinksView(View):
             created_text = created_dt.strftime("%d.%m %H:%M")
             
             embed.add_field(
-                name=f"@{role_name}",
-                value=f"**Команда:** `!роль {link_code}`\n**Статус:** {status}\n**Создал:** {created_by}\n**Создано:** {created_text}\n**Истекает:** {expires_text}",
+                name=f"🎯 {role_name}",
+                value=(
+                    f"**Код:** `{link_code}`\n"
+                    f"**Статус:** {status}\n"
+                    f"**Создал:** **{created_by}**\n"
+                    f"**Создано:** {created_text}\n"
+                    f"**Истекает:** {expires_text}"
+                ),
                 inline=False
             )
         
@@ -493,7 +499,7 @@ class PermanentRoleView(View):
             color=0x3498db
         )
         
-        # Показываем первые 5 команд
+        # Показываем первые 5 команд с информацией о создателе
         for link_code, role_name, uses_limit, uses_count, expires_at, created_by, created_at in links[:5]:
             status = "✅ Активна"
             if uses_limit > 0:
@@ -506,9 +512,18 @@ class PermanentRoleView(View):
                 expires_dt = datetime.fromisoformat(expires_at)
                 expires_text = expires_dt.strftime("%d.%m %H:%M")
             
+            created_dt = datetime.fromisoformat(created_at)
+            created_text = created_dt.strftime("%d.%m %H:%M")
+            
             embed.add_field(
-                name=f"@{role_name}",
-                value=f"**Команда:** `!роль {link_code}`\n**Статус:** {status}\n**Истекает:** {expires_text}",
+                name=f"🎯 {role_name}",
+                value=(
+                    f"**Код:** `{link_code}`\n"
+                    f"**Статус:** {status}\n"
+                    f"**Создал:** **{created_by}**\n"
+                    f"**Создано:** {created_text}\n"
+                    f"**Истекает:** {expires_text}"
+                ),
                 inline=False
             )
         
