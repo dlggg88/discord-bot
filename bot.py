@@ -116,6 +116,16 @@ class RoleLinkSystem:
             "uses_count": link[6] + 1,
             "uses_limit": link[5]
         }
+    
+    def get_active_links(self, server_id: int) -> List:
+        cursor = db.conn.cursor()
+        cursor.execute('''
+            SELECT link_code, role_name, uses_limit, uses_count, expires_at, created_by_name, created_at
+            FROM role_links 
+            WHERE server_id = ? AND is_active = TRUE
+            ORDER BY created_at DESC
+        ''', (server_id,))
+        return cursor.fetchall()
 
 role_link_system = RoleLinkSystem()
 
@@ -198,7 +208,7 @@ class CustomLinkModal(Modal):
             embed.add_field(name="Инструкция", value="Отправьте команду в чат чтобы получить роль", inline=False)
             
             view = LinkActionsView(link_code, self.role.name)
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            message = await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
             
         except ValueError:
             await interaction.response.send_message("❌ Введите корректные числа", ephemeral=True)
@@ -214,7 +224,7 @@ class LinkActionsView(View):
         modal = CopyLinkModal(f"!роль {self.link_code}")
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="📤 Поделиться", style=discord.ButtonStyle.success, emoji="📤")
+    @discord.ui.button(label="📤 Поделиться в чате", style=discord.ButtonStyle.success, emoji="📤")
     async def share_link(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title=f"🔗 Получить роль: {self.role_name}",
@@ -222,12 +232,77 @@ class LinkActionsView(View):
             color=0x5865F2
         )
         embed.add_field(name="Команда", value=f"```!роль {self.link_code}```", inline=False)
+        embed.set_footer(text="Сообщение автоматически удалится через 1 минуту")
         
-        await interaction.response.send_message(
-            content="✅ Создано сообщение для участников:",
-            embed=embed,
-            ephemeral=True
+        # Отправляем в общий чат и удаляем через минуту
+        message = await interaction.channel.send(embed=embed)
+        await interaction.response.send_message("✅ Сообщение отправлено в чат!", ephemeral=True)
+        
+        # Удаляем через 1 минуту
+        await asyncio.sleep(60)
+        try:
+            await message.delete()
+        except:
+            pass
+
+class ActiveLinksView(View):
+    def __init__(self, links, page=0):
+        super().__init__(timeout=180)
+        self.links = links
+        self.page = page
+        self.links_per_page = 5
+        
+    @discord.ui.button(label="⬅️ Назад", style=discord.ButtonStyle.secondary)
+    async def previous_page(self, interaction: discord.Interaction, button: Button):
+        if self.page > 0:
+            await self.show_page(interaction, self.page - 1)
+    
+    @discord.ui.button(label="➡️ Вперед", style=discord.ButtonStyle.secondary)
+    async def next_page(self, interaction: discord.Interaction, button: Button):
+        if (self.page + 1) * self.links_per_page < len(self.links):
+            await self.show_page(interaction, self.page + 1)
+    
+    @discord.ui.button(label="🔄 Обновить", style=discord.ButtonStyle.primary)
+    async def refresh(self, interaction: discord.Interaction, button: Button):
+        await self.show_page(interaction, self.page)
+    
+    async def show_page(self, interaction: discord.Interaction, page: int):
+        start_idx = page * self.links_per_page
+        end_idx = start_idx + self.links_per_page
+        page_links = self.links[start_idx:end_idx]
+        
+        embed = discord.Embed(
+            title=f"🔗 Активные команды (Страница {page + 1})",
+            description=f"Всего активных команд: {len(self.links)}",
+            color=0x3498db
         )
+        
+        for link_code, role_name, uses_limit, uses_count, expires_at, created_by, created_at in page_links:
+            status = "✅ Активна"
+            if uses_limit > 0:
+                status = f"🔄 {uses_count}/{uses_limit}"
+            if expires_at and datetime.now() > datetime.fromisoformat(expires_at):
+                status = "❌ Истекла"
+            
+            expires_text = "Бессрочно"
+            if expires_at:
+                expires_dt = datetime.fromisoformat(expires_at)
+                expires_text = expires_dt.strftime("%d.%m %H:%M")
+            
+            created_dt = datetime.fromisoformat(created_at)
+            created_text = created_dt.strftime("%d.%m %H:%M")
+            
+            embed.add_field(
+                name=f"@{role_name}",
+                value=f"**Команда:** `!роль {link_code}`\n**Статус:** {status}\n**Создал:** {created_by}\n**Создано:** {created_text}\n**Истекает:** {expires_text}",
+                inline=False
+            )
+        
+        if not page_links:
+            embed.description = "❌ На этой странице нет команд"
+        
+        view = ActiveLinksView(self.links, page)
+        await interaction.response.edit_message(embed=embed, view=view)
 
 class RoleSelectView(View):
     def __init__(self, roles, action_type):
@@ -406,24 +481,20 @@ class PermanentRoleView(View):
     async def active_links_button(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer(ephemeral=True)
         
-        cursor = db.conn.cursor()
-        cursor.execute('''
-            SELECT link_code, role_name, uses_limit, uses_count, expires_at, created_by_name
-            FROM role_links 
-            WHERE server_id = ? AND is_active = TRUE
-            ORDER BY created_at DESC
-            LIMIT 10
-        ''', (interaction.guild.id,))
-        
-        links = cursor.fetchall()
+        links = role_link_system.get_active_links(interaction.guild.id)
         
         if not links:
             await interaction.followup.send("❌ Нет активных команд", ephemeral=True)
             return
         
-        embed = discord.Embed(title="🔗 Активные команды", color=0x3498db)
+        embed = discord.Embed(
+            title="🔗 Активные команды",
+            description=f"Всего активных команд: {len(links)}",
+            color=0x3498db
+        )
         
-        for link_code, role_name, uses_limit, uses_count, expires_at, created_by in links:
+        # Показываем первые 5 команд
+        for link_code, role_name, uses_limit, uses_count, expires_at, created_by, created_at in links[:5]:
             status = "✅ Активна"
             if uses_limit > 0:
                 status = f"🔄 {uses_count}/{uses_limit}"
@@ -437,11 +508,15 @@ class PermanentRoleView(View):
             
             embed.add_field(
                 name=f"@{role_name}",
-                value=f"**Команда:** `!роль {link_code}`\n**Статус:** {status}\n**Создал:** {created_by}\n**Истекает:** {expires_text}",
+                value=f"**Команда:** `!роль {link_code}`\n**Статус:** {status}\n**Истекает:** {expires_text}",
                 inline=False
             )
         
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        if len(links) > 5:
+            embed.set_footer(text=f"И еще {len(links) - 5} команд... Используйте кнопки для навигации")
+        
+        view = ActiveLinksView(links)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
     
     @discord.ui.button(label="⚡ Быстрая команда", style=discord.ButtonStyle.success, emoji="⚡", custom_id="quick_link_btn")
     async def quick_link_button(self, interaction: discord.Interaction, button: Button):
@@ -634,11 +709,11 @@ async def роль(ctx, код: str):
 async def создать_команду(ctx, роль: discord.Role, использование: int = 0, часы: int = 24):
     """Создать команду для выдачи роли"""
     if использование > 1000:
-        await ctx.send("❌ Максимальный лимит: 1000 использований")
+        await ctx.send("❌ Максимальный лимит: 1000 использований", delete_after=5)
         return
     
     if часы > 8760:  # 1 год
-        await ctx.send("❌ Максимальный срок: 8760 часов (1 год)")
+        await ctx.send("❌ Максимальный срок: 8760 часов (1 год)", delete_after=5)
         return
     
     link_code = role_link_system.create_role_link(
@@ -662,8 +737,12 @@ async def создать_команду(ctx, роль: discord.Role, испол�
     embed.add_field(name="Использование", value="Отправьте команду в чат чтобы получить роль", inline=False)
     
     await ctx.author.send(embed=embed)
-    await ctx.send("✅ Команда создана! Проверьте личные сообщения.", delete_after=5)
+    message = await ctx.send("✅ Команда создана! Проверьте личные сообщения.", delete_after=5)
     await ctx.message.delete()
+    
+    # Удаляем сообщение бота через 5 секунд
+    await asyncio.sleep(5)
+    await message.delete()
 
 # ========== ОСНОВНЫЕ КОМАНДЫ ==========
 
@@ -694,7 +773,14 @@ async def помощь(ctx):
         inline=False
     )
     
-    await ctx.send(embed=embed)
+    message = await ctx.send(embed=embed)
+    
+    # Удаляем сообщение помощи через 2 минуты
+    await asyncio.sleep(120)
+    try:
+        await message.delete()
+    except:
+        pass
 
 @bot.command()
 @commands.has_permissions(administrator=True)
