@@ -10,7 +10,7 @@ import json
 import sqlite3
 import aiohttp
 import secrets
-from typing import Dict, List, Optional  # Добавлен импорт типов
+from typing import Dict, List, Optional
 
 # Конфигурация Flask для Railway
 app = Flask(__name__)
@@ -689,30 +689,9 @@ async def помощь(ctx):
     
     embed.add_field(
         name="⚙️ Система",
-        value="`!статус` - статус бота\n`!очистить N` - удалить сообщения (админы)",
+        value="`!очистить N` - удалить сообщения (админы)",
         inline=False
     )
-    
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def статус(ctx):
-    """Показать статус бота"""
-    embed = discord.Embed(title="🤖 Статус Multi Bot", color=0x3498db)
-    embed.add_field(name="Пинг", value=f"{round(bot.latency * 1000)}мс", inline=True)
-    embed.add_field(name="Серверов", value=len(bot.guilds), inline=True)
-    embed.add_field(name="Аптайм", value="🟢 Online", inline=True)
-    
-    # Статистика команд
-    cursor = db.conn.cursor()
-    cursor.execute('SELECT COUNT(*) FROM role_links WHERE server_id = ? AND is_active = TRUE', (ctx.guild.id,))
-    active_commands = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM role_links WHERE server_id = ?', (ctx.guild.id,))
-    total_commands = cursor.fetchone()[0]
-    
-    embed.add_field(name="Активных команд", value=active_commands, inline=True)
-    embed.add_field(name="Всего команд", value=total_commands, inline=True)
     
     await ctx.send(embed=embed)
 
