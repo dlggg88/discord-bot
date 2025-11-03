@@ -133,18 +133,19 @@ role_link_system = RoleLinkSystem()
 
 class CopyLinkModal(Modal):
     def __init__(self, link_url):
-        super().__init__(title="📋 Копирование ссылки")
+        super().__init__(title="📋 Копирование команды")
         self.link_url = link_url
         
         self.link_field = TextInput(
-            label="Ссылка для копирования",
+            label="Команда для копирования",
             default=link_url,
-            style=discord.TextStyle.paragraph
+            style=discord.TextStyle.paragraph,
+            placeholder="Скопируйте команду ниже"
         )
         self.add_item(self.link_field)
     
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.send_message("✅ Ссылка готова для копирования!", ephemeral=True)
+        await interaction.response.send_message("✅ Команда скопирована! Теперь вы можете вставить её в чат.", ephemeral=True)
 
 class CustomLinkModal(Modal):
     def __init__(self, role):
@@ -219,12 +220,12 @@ class LinkActionsView(View):
         self.link_code = link_code
         self.role_name = role_name
     
-    @discord.ui.button(label="📋 Копировать команду", style=discord.ButtonStyle.primary, emoji="📋")
+    @discord.ui.button(label="📋 СКОПИРОВАТЬ КОМАНДУ", style=discord.ButtonStyle.success, emoji="📋", row=0)
     async def copy_command(self, interaction: discord.Interaction, button: Button):
         modal = CopyLinkModal(f"!роль {self.link_code}")
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="📤 Поделиться в чате", style=discord.ButtonStyle.success, emoji="📤")
+    @discord.ui.button(label="📤 Поделиться в чате", style=discord.ButtonStyle.primary, emoji="📤", row=1)
     async def share_link(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title=f"🔗 Получить роль: {self.role_name}",
@@ -240,6 +241,19 @@ class LinkActionsView(View):
         
         # Удаляем через 1 минуту
         await asyncio.sleep(60)
+        try:
+            await message.delete()
+        except:
+            pass
+    
+    @discord.ui.button(label="🎯 Быстрая отправка", style=discord.ButtonStyle.secondary, emoji="🎯", row=1)
+    async def quick_send(self, interaction: discord.Interaction, button: Button):
+        # Отправляем команду прямо в чат
+        message = await interaction.channel.send(f"**Получить роль '{self.role_name}':**\n```!роль {self.link_code}```")
+        await interaction.response.send_message("✅ Команда отправлена в чат!", ephemeral=True)
+        
+        # Удаляем через 30 секунд
+        await asyncio.sleep(30)
         try:
             await message.delete()
         except:
