@@ -220,12 +220,12 @@ class LinkActionsView(View):
         self.link_code = link_code
         self.role_name = role_name
     
-    @discord.ui.button(label="📋 СКОПИРОВАТЬ КОМАНДУ", style=discord.ButtonStyle.success, emoji="📋", row=0)
+    @discord.ui.button(label="📋 СКОПИРОВАТЬ", style=discord.ButtonStyle.success, emoji="📋", row=0)
     async def copy_command(self, interaction: discord.Interaction, button: Button):
         modal = CopyLinkModal(f"!роль {self.link_code}")
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="📤 Поделиться в чате", style=discord.ButtonStyle.primary, emoji="📤", row=1)
+    @discord.ui.button(label="📤 ПОДЕЛИТЬСЯ", style=discord.ButtonStyle.primary, emoji="📤", row=0)
     async def share_link(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title=f"🔗 Получить роль: {self.role_name}",
@@ -246,7 +246,7 @@ class LinkActionsView(View):
         except:
             pass
     
-    @discord.ui.button(label="🎯 Быстрая отправка", style=discord.ButtonStyle.secondary, emoji="🎯", row=1)
+    @discord.ui.button(label="🎯 БЫСТРАЯ ОТПРАВКА", style=discord.ButtonStyle.secondary, emoji="🎯", row=1)
     async def quick_send(self, interaction: discord.Interaction, button: Button):
         # Отправляем команду прямо в чат
         message = await interaction.channel.send(f"**Получить роль '{self.role_name}':**\n```!роль {self.link_code}```")
@@ -266,17 +266,17 @@ class ActiveLinksView(View):
         self.page = page
         self.links_per_page = 5
         
-    @discord.ui.button(label="⬅️ Назад", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="⬅️", style=discord.ButtonStyle.secondary, custom_id="prev_btn")
     async def previous_page(self, interaction: discord.Interaction, button: Button):
         if self.page > 0:
             await self.show_page(interaction, self.page - 1)
     
-    @discord.ui.button(label="➡️ Вперед", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="➡️", style=discord.ButtonStyle.secondary, custom_id="next_btn")
     async def next_page(self, interaction: discord.Interaction, button: Button):
         if (self.page + 1) * self.links_per_page < len(self.links):
             await self.show_page(interaction, self.page + 1)
     
-    @discord.ui.button(label="🔄 Обновить", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="🔄", style=discord.ButtonStyle.primary, custom_id="refresh_btn")
     async def refresh(self, interaction: discord.Interaction, button: Button):
         await self.show_page(interaction, self.page)
     
@@ -386,19 +386,19 @@ class LinkSettingsView(View):
         self.creator_id = creator_id
         self.creator_name = creator_name
     
-    @discord.ui.button(label="1️⃣ Без ограничений", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="🚀 БЕЗ ОГРАНИЧЕНИЙ", style=discord.ButtonStyle.success, emoji="🚀", row=0)
     async def unlimited_button(self, interaction: discord.Interaction, button: Button):
         await self.create_link(interaction, 0, 0)
     
-    @discord.ui.button(label="2️⃣ 10 использований", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="🎯 10 ИСПОЛЬЗОВАНИЙ", style=discord.ButtonStyle.primary, emoji="🎯", row=0)
     async def ten_uses_button(self, interaction: discord.Interaction, button: Button):
         await self.create_link(interaction, 10, 24)
     
-    @discord.ui.button(label="3️⃣ 1 день", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="⏰ 24 ЧАСА", style=discord.ButtonStyle.primary, emoji="⏰", row=1)
     async def one_day_button(self, interaction: discord.Interaction, button: Button):
         await self.create_link(interaction, 0, 24)
     
-    @discord.ui.button(label="🎛️ Кастомные настройки", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="⚙️ КАСТОМНЫЕ НАСТРОЙКИ", style=discord.ButtonStyle.secondary, emoji="⚙️", row=1)
     async def custom_button(self, interaction: discord.Interaction, button: Button):
         modal = CustomLinkModal(self.role)
         await interaction.response.send_modal(modal)
@@ -445,7 +445,8 @@ class QuickRoleView(View):
         for i, role in enumerate(roles):
             button = Button(
                 label=role.name[:15],
-                style=discord.ButtonStyle.primary
+                style=discord.ButtonStyle.primary,
+                emoji="🎯"
             )
             button.callback = self.create_quick_link_callback(role)
             self.add_item(button)
@@ -476,11 +477,13 @@ class QuickRoleView(View):
         
         return callback
 
+# ========== ОБНОВЛЕННЫЕ КНОПКИ С СТИЛЬНЫМ ДИЗАЙНОМ ==========
+
 class PermanentRoleView(View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="🔗 Создать команду", style=discord.ButtonStyle.primary, emoji="🔗", custom_id="create_link_btn")
+    @discord.ui.button(label="🎮 СОЗДАТЬ КОМАНДУ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="create_link_btn", row=0)
     async def create_link_button(self, interaction: discord.Interaction, button: Button):
         roles = [role for role in interaction.guild.roles if role.name != "@everyone" and not role.managed]
         
@@ -497,7 +500,7 @@ class PermanentRoleView(View):
         view = RoleSelectView(roles, "create")
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
-    @discord.ui.button(label="📊 Активные команды", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="active_links_btn")
+    @discord.ui.button(label="📊 АКТИВНЫЕ КОМАНДЫ", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="active_links_btn", row=0)
     async def active_links_button(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer(ephemeral=True)
         
@@ -547,7 +550,7 @@ class PermanentRoleView(View):
         view = ActiveLinksView(links)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
     
-    @discord.ui.button(label="⚡ Быстрая команда", style=discord.ButtonStyle.success, emoji="⚡", custom_id="quick_link_btn")
+    @discord.ui.button(label="⚡ БЫСТРАЯ КОМАНДА", style=discord.ButtonStyle.success, emoji="⚡", custom_id="quick_link_btn", row=1)
     async def quick_link_button(self, interaction: discord.Interaction, button: Button):
         roles = [role for role in interaction.guild.roles if role.name != "@everyone" and not role.managed]
         
@@ -565,12 +568,46 @@ class PermanentRoleView(View):
         
         view = QuickRoleView(popular_roles, interaction.user.id, interaction.user.name)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    
+    @discord.ui.button(label="❓ ПОМОЩЬ", style=discord.ButtonStyle.danger, emoji="❓", custom_id="help_btn", row=1)
+    async def help_button(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title="📋 Помощь по командам",
+            description="Как использовать систему ролей:",
+            color=0x5865F2
+        )
+        
+        embed.add_field(
+            name="🎮 Создать команду",
+            value="Создает команду для выдачи роли с настройками",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📊 Активные команды", 
+            value="Показывает все активные команды и их статус",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⚡ Быстрая команда",
+            value="Создает команду на 24 часа без ограничений",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🎯 Использование",
+            value="Отправьте `!роль КОД` в чат чтобы получить роль",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 class MainPanelView(View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="🎮 Роли", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="main_roles")
+    @discord.ui.button(label="🎮 УПРАВЛЕНИЕ РОЛЯМИ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="main_roles", row=0)
     async def roles_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title="🎮 Управление ролями",
@@ -578,16 +615,118 @@ class MainPanelView(View):
             color=0x5865F2
         )
         
+        embed.add_field(
+            name="🎮 СОЗДАТЬ КОМАНДУ",
+            value="Создать команду для выдачи роли с настройками",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📊 АКТИВНЫЕ КОМАНДЫ", 
+            value="Просмотр всех активных команд и их статуса",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⚡ БЫСТРАЯ КОМАНДА",
+            value="Создать команду на 24 часа без ограничений",
+            inline=False
+        )
+        
         view = PermanentRoleView()
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
-    @discord.ui.button(label="👥 Участники", style=discord.ButtonStyle.secondary, emoji="👥", custom_id="main_members")
+    @discord.ui.button(label="👥 УПРАВЛЕНИЕ УЧАСТНИКАМИ", style=discord.ButtonStyle.secondary, emoji="👥", custom_id="main_members", row=0)
     async def members_button(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message("🔄 Раздел участников в разработке...", ephemeral=True)
+        embed = discord.Embed(
+            title="👥 Управление участниками",
+            description="Функции управления участниками:",
+            color=0x3498db
+        )
+        
+        embed.add_field(
+            name="📊 Статистика",
+            value="Просмотр статистики сервера",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🎭 Массовая выдача ролей",
+            value="Выдача ролей нескольким участникам",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🔄 В разработке",
+            value="Дополнительные функции скоро будут добавлены",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
     
-    @discord.ui.button(label="⚙️ Настройки", style=discord.ButtonStyle.success, emoji="⚙️", custom_id="main_settings")
+    @discord.ui.button(label="⚙️ НАСТРОЙКИ СИСТЕМЫ", style=discord.ButtonStyle.success, emoji="⚙️", custom_id="main_settings", row=1)
     async def settings_button(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message("🔄 Раздел настроек в разработке...", ephemeral=True)
+        embed = discord.Embed(
+            title="⚙️ Настройки системы",
+            description="Настройки бота и сервера:",
+            color=0x00ff00
+        )
+        
+        embed.add_field(
+            name="🔧 Конфигурация",
+            value="Настройки системы ролей",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🛡️ Безопасность",
+            value="Настройки прав доступа",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📈 Логирование",
+            value="Настройки журналирования",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🔄 В разработке",
+            value="Настройки будут доступны в следующем обновлении",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="ℹ️ О СИСТЕМЕ", style=discord.ButtonStyle.danger, emoji="ℹ️", custom_id="main_about", row=1)
+    async def about_button(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title="ℹ️ О системе Multi Bot",
+            description="Многофункциональный бот для управления сервером",
+            color=0x5865F2
+        )
+        
+        embed.add_field(
+            name="🚀 Возможности",
+            value="• Управление ролями\n• Система команд\n• Веб-панель\n• Модерация",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📊 Статистика",
+            value=f"• Серверов: {len(bot.guilds)}\n• Задержка: {round(bot.latency * 1000)}мс",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🔧 Технологии",
+            value="• Python 3.11\n• Discord.py\n• SQLite3\n• Flask",
+            inline=False
+        )
+        
+        embed.set_footer(text="Multi Bot System v2.0 | Разработано с ❤️")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # ========== DISCORD BOT ==========
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -626,18 +765,23 @@ async def создать_панель(ctx):
         color=0x5865F2
     )
     embed.add_field(
-        name="🔗 Создать команду", 
-        value="Создать команду для выдачи роли", 
+        name="🎮 СОЗДАТЬ КОМАНДУ", 
+        value="Создать команду для выдачи роли с настройками", 
         inline=True
     )
     embed.add_field(
-        name="📊 Активные команды", 
+        name="📊 АКТИВНЫЕ КОМАНДЫ", 
         value="Просмотр всех активных команд", 
         inline=True
     )
     embed.add_field(
-        name="⚡ Быстрая команда", 
+        name="⚡ БЫСТРАЯ КОМАНДА", 
         value="Создать команду без ограничений", 
+        inline=True
+    )
+    embed.add_field(
+        name="❓ ПОМОЩЬ", 
+        value="Инструкция по использованию", 
         inline=True
     )
     
@@ -663,18 +807,23 @@ async def главная_панель(ctx):
     )
     
     embed.add_field(
-        name="🎮 Управление ролями", 
+        name="🎮 УПРАВЛЕНИЕ РОЛЯМИ", 
         value="Создание и управление командами для ролей", 
         inline=False
     )
     embed.add_field(
-        name="👥 Участники", 
+        name="👥 УПРАВЛЕНИЕ УЧАСТНИКАМИ", 
         value="Управление участниками сервера", 
         inline=False
     )
     embed.add_field(
-        name="⚙️ Настройки", 
+        name="⚙️ НАСТРОЙКИ СИСТЕМЫ", 
         value="Настройки бота и сервера", 
+        inline=False
+    )
+    embed.add_field(
+        name="ℹ️ О СИСТЕМЕ", 
+        value="Информация о боте и его возможностях", 
         inline=False
     )
     
@@ -731,114 +880,4 @@ async def роль(ctx, код: str):
         await ctx.message.delete()
         await message.delete()
 
-# ========== КОМАНДА ДЛЯ РУЧНОГО СОЗДАНИЯ КОМАНД ==========
-
-@bot.command()
-@commands.has_role('Admin')
-async def создать_команду(ctx, роль: discord.Role, использование: int = 0, часы: int = 24):
-    """Создать команду для выдачи роли"""
-    if использование > 1000:
-        await ctx.send("❌ Максимальный лимит: 1000 использований", delete_after=5)
-        return
-    
-    if часы > 8760:  # 1 год
-        await ctx.send("❌ Максимальный срок: 8760 часов (1 год)", delete_after=5)
-        return
-    
-    link_code = role_link_system.create_role_link(
-        server_id=ctx.guild.id,
-        role_id=роль.id,
-        role_name=роль.name,
-        created_by=ctx.author.id,
-        created_by_name=ctx.author.name,
-        uses_limit=использование,
-        expires_hours=часы
-    )
-    
-    embed = discord.Embed(
-        title="🔗 Команда создана",
-        description=f"Роль: {роль.mention}",
-        color=0x00ff00
-    )
-    embed.add_field(name="Команда", value=f"`!роль {link_code}`", inline=True)
-    embed.add_field(name="Лимит", value=f"{использование if использование > 0 else '∞'}", inline=True)
-    embed.add_field(name="Срок", value=f"{часы if часы > 0 else '∞'} часов", inline=True)
-    embed.add_field(name="Использование", value="Отправьте команду в чат чтобы получить роль", inline=False)
-    
-    await ctx.author.send(embed=embed)
-    message = await ctx.send("✅ Команда создана! Проверьте личные сообщения.", delete_after=5)
-    await ctx.message.delete()
-    
-    # Удаляем сообщение бота через 5 секунд
-    await asyncio.sleep(5)
-    await message.delete()
-
-# ========== ОСНОВНЫЕ КОМАНДЫ ==========
-
-@bot.command()
-async def помощь(ctx):
-    """Показать все команды"""
-    embed = discord.Embed(
-        title="📋 Команды Multi Bot",
-        description="Доступные команды для управления",
-        color=0x00ff00
-    )
-    
-    embed.add_field(
-        name="🎮 Панели управления",
-        value="`!главная_панель` - главная панель\n`!создать_панель` - панель ролей",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="🔗 Управление ролями", 
-        value="`!создать_команду @роль [лимит] [часы]` - создать команду\n`!роль код` - получить роль",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="⚙️ Система",
-        value="`!очистить N` - удалить сообщения (админы)",
-        inline=False
-    )
-    
-    message = await ctx.send(embed=embed)
-    
-    # Удаляем сообщение помощи через 2 минуты
-    await asyncio.sleep(120)
-    try:
-        await message.delete()
-    except:
-        pass
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def очистить(ctx, количество: int = 10):
-    """Удалить сообщения (только для админов)"""
-    await ctx.channel.purge(limit=количество + 1)
-    msg = await ctx.send(f"🗑️ Удалено {количество} сообщений!")
-    await asyncio.sleep(3)
-    await msg.delete()
-
-# ========== ВЕБ-МАРШРУТЫ ==========
-
-@app.route('/health')
-def health():
-    return jsonify({
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "service": "multi-bot",
-        "version": "1.0.0"
-    })
-
-# ========== ЗАПУСК ПРИЛОЖЕНИЯ ==========
-
-if __name__ == '__main__':
-    keep_alive()
-    print(f"🚀 Запускаю Multi Bot на порту {port}")
-    print(f"🔑 Токен: {'установлен' if TOKEN else 'НЕ УСТАНОВЛЕН!'}")
-    
-    try:
-        bot.run(TOKEN)
-    except Exception as e:
-        print(f"❌ Ошибка запуска бота: {e}")
+# ========== КОМАНДА ДЛЯ РУЧНОГО СОЗДАНИЯ
