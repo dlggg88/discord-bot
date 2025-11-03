@@ -506,7 +506,8 @@ async def on_ready():
     bot.add_view(PermanentRoleView())
     bot.add_view(MainPanelView())
     
-    activity = discord.Activity(type=discord.ActivityType.watching, name="панель управления | !помощь")
+    # Устанавливаем статус "Смотрящий за сервером"
+    activity = discord.Activity(type=discord.ActivityType.watching, name="Смотрящий за сервером 👁️")
     await bot.change_presence(activity=activity)
 
 # ========== КОМАНДЫ ДЛЯ СОЗДАНИЯ ПАНЕЛЕЙ ==========
