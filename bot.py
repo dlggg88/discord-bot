@@ -881,3 +881,5 @@ async def роль(ctx, код: str):
         await message.delete()
 
 # ========== КОМАНДА ДЛЯ РУЧНОГО СОЗДАНИЯ
+
+
