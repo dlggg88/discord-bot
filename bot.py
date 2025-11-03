@@ -216,12 +216,12 @@ class LinkActionsView(View):
         self.link_code = link_code
         self.role_name = role_name
     
-    @discord.ui.button(label="📋 СКОПИРОВАТЬ", style=discord.ButtonStyle.success, emoji="📋", row=0)
+    @discord.ui.button(label="СКОПИРОВАТЬ", style=discord.ButtonStyle.success, emoji="📋", row=0)
     async def copy_command(self, interaction: discord.Interaction, button: Button):
         modal = CopyLinkModal(f"!роль {self.link_code}")
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="🔙 НАЗАД", style=discord.ButtonStyle.secondary, emoji="🔙", row=0)
+    @discord.ui.button(label="НАЗАД", style=discord.ButtonStyle.secondary, emoji="🔙", row=0)
     async def back_button(self, interaction: discord.Interaction, button: Button):
         await self.show_main_menu(interaction)
     
@@ -253,7 +253,7 @@ class RoleSelectView(View):
         self.select.callback = self.role_selected
         self.add_item(self.select)
     
-    @discord.ui.button(label="🔙 НАЗАД", style=discord.ButtonStyle.secondary, emoji="🔙", row=1)
+    @discord.ui.button(label="НАЗАД", style=discord.ButtonStyle.secondary, emoji="🔙", row=1)
     async def back_button(self, interaction: discord.Interaction, button: Button):
         await self.show_main_menu(interaction)
     
@@ -287,24 +287,24 @@ class LinkSettingsView(View):
         self.creator_id = creator_id
         self.creator_name = creator_name
     
-    @discord.ui.button(label="🚀 БЕЗ ОГРАНИЧЕНИЙ", style=discord.ButtonStyle.success, emoji="🚀", row=0)
+    @discord.ui.button(label="БЕЗ ОГРАНИЧЕНИЙ", style=discord.ButtonStyle.success, emoji="🚀", row=0)
     async def unlimited_button(self, interaction: discord.Interaction, button: Button):
         await self.create_link(interaction, 0, 0)
     
-    @discord.ui.button(label="🎯 10 ИСПОЛЬЗОВАНИЙ", style=discord.ButtonStyle.primary, emoji="🎯", row=0)
+    @discord.ui.button(label="10 ИСПОЛЬЗОВАНИЙ", style=discord.ButtonStyle.primary, emoji="🎯", row=0)
     async def ten_uses_button(self, interaction: discord.Interaction, button: Button):
         await self.create_link(interaction, 10, 24)
     
-    @discord.ui.button(label="⏰ 24 ЧАСА", style=discord.ButtonStyle.primary, emoji="⏰", row=1)
+    @discord.ui.button(label="24 ЧАСА", style=discord.ButtonStyle.primary, emoji="⏰", row=1)
     async def one_day_button(self, interaction: discord.Interaction, button: Button):
         await self.create_link(interaction, 0, 24)
     
-    @discord.ui.button(label="⚙️ КАСТОМНЫЕ НАСТРОЙКИ", style=discord.ButtonStyle.secondary, emoji="⚙️", row=1)
+    @discord.ui.button(label="КАСТОМНЫЕ НАСТРОЙКИ", style=discord.ButtonStyle.secondary, emoji="⚙️", row=1)
     async def custom_button(self, interaction: discord.Interaction, button: Button):
         modal = CustomLinkModal(self.role)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="🔙 НАЗАД", style=discord.ButtonStyle.secondary, emoji="🔙", row=2)
+    @discord.ui.button(label="НАЗАД", style=discord.ButtonStyle.secondary, emoji="🔙", row=2)
     async def back_button(self, interaction: discord.Interaction, button: Button):
         roles = [role for role in interaction.guild.roles if role.name != "@everyone" and not role.managed]
         
@@ -356,7 +356,7 @@ class ActiveLinksView(View):
         self.page = page
         self.links_per_page = 5
         
-    @discord.ui.button(label="🔙 НАЗАД", style=discord.ButtonStyle.primary, custom_id="back_btn")
+    @discord.ui.button(label="НАЗАД", style=discord.ButtonStyle.primary, emoji="🔙", custom_id="back_btn")
     async def back_button(self, interaction: discord.Interaction, button: Button):
         await self.show_main_menu(interaction)
     
@@ -389,7 +389,7 @@ class QuickRoleView(View):
         
         # Кнопка "Назад"
         back_button = Button(
-            label="🔙 НАЗАД",
+            label="НАЗАД",
             style=discord.ButtonStyle.secondary,
             emoji="🔙",
             row=2
@@ -439,7 +439,7 @@ class MainRoleView(View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="🎮 СОЗДАТЬ КОМАНДУ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="create_link_btn", row=0)
+    @discord.ui.button(label="СОЗДАТЬ КОМАНДУ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="create_link_btn", row=0)
     async def create_link_button(self, interaction: discord.Interaction, button: Button):
         roles = [role for role in interaction.guild.roles if role.name != "@everyone" and not role.managed]
         
@@ -456,7 +456,7 @@ class MainRoleView(View):
         view = RoleSelectView(roles)
         await interaction.response.edit_message(embed=embed, view=view)
     
-    @discord.ui.button(label="📊 АКТИВНЫЕ КОМАНДЫ", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="active_links_btn", row=0)
+    @discord.ui.button(label="АКТИВНЫЕ КОМАНДЫ", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="active_links_btn", row=0)
     async def active_links_button(self, interaction: discord.Interaction, button: Button):
         links = role_link_system.get_active_links(interaction.guild.id)
         
@@ -509,7 +509,7 @@ class MainRoleView(View):
         view = ActiveLinksView(links)
         await interaction.response.edit_message(embed=embed, view=view)
     
-    @discord.ui.button(label="⚡ БЫСТРАЯ КОМАНДА", style=discord.ButtonStyle.success, emoji="⚡", custom_id="quick_link_btn", row=1)
+    @discord.ui.button(label="БЫСТРАЯ КОМАНДА", style=discord.ButtonStyle.success, emoji="⚡", custom_id="quick_link_btn", row=1)
     async def quick_link_button(self, interaction: discord.Interaction, button: Button):
         roles = [role for role in interaction.guild.roles if role.name != "@everyone" and not role.managed]
         
@@ -528,7 +528,7 @@ class MainRoleView(View):
         view = QuickRoleView(popular_roles, interaction.user.id, interaction.user.name)
         await interaction.response.edit_message(embed=embed, view=view)
     
-    @discord.ui.button(label="❓ ПОМОЩЬ", style=discord.ButtonStyle.danger, emoji="❓", custom_id="help_btn", row=1)
+    @discord.ui.button(label="ПОМОЩЬ", style=discord.ButtonStyle.danger, emoji="❓", custom_id="help_btn", row=1)
     async def help_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title="📋 Помощь по командам",
