@@ -10,6 +10,7 @@ import json
 import sqlite3
 import aiohttp
 import secrets
+from typing import Dict, List, Optional  # Добавлен импорт типов
 
 # Конфигурация Flask для Railway
 app = Flask(__name__)
