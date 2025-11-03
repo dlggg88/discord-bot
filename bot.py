@@ -356,63 +356,9 @@ class ActiveLinksView(View):
         self.page = page
         self.links_per_page = 5
         
-    @discord.ui.button(label="⬅️", style=discord.ButtonStyle.secondary, custom_id="prev_btn")
-    async def previous_page(self, interaction: discord.Interaction, button: Button):
-        if self.page > 0:
-            await self.show_page(interaction, self.page - 1)
-    
-    @discord.ui.button(label="➡️", style=discord.ButtonStyle.secondary, custom_id="next_btn")
-    async def next_page(self, interaction: discord.Interaction, button: Button):
-        if (self.page + 1) * self.links_per_page < len(self.links):
-            await self.show_page(interaction, self.page + 1)
-    
     @discord.ui.button(label="🔙 НАЗАД", style=discord.ButtonStyle.primary, custom_id="back_btn")
     async def back_button(self, interaction: discord.Interaction, button: Button):
         await self.show_main_menu(interaction)
-    
-    async def show_page(self, interaction: discord.Interaction, page: int):
-        start_idx = page * self.links_per_page
-        end_idx = start_idx + self.links_per_page
-        page_links = self.links[start_idx:end_idx]
-        
-        embed = discord.Embed(
-            title=f"🔗 Активные команды (Страница {page + 1})",
-            description=f"Всего активных команд: {len(self.links)}",
-            color=0x3498db
-        )
-        
-        for link_code, role_name, uses_limit, uses_count, expires_at, created_by, created_at in page_links:
-            status = "✅ Активна"
-            if uses_limit > 0:
-                status = f"🔄 {uses_count}/{uses_limit}"
-            if expires_at and datetime.now() > datetime.fromisoformat(expires_at):
-                status = "❌ Истекла"
-            
-            expires_text = "Бессрочно"
-            if expires_at:
-                expires_dt = datetime.fromisoformat(expires_at)
-                expires_text = expires_dt.strftime("%d.%m %H:%M")
-            
-            created_dt = datetime.fromisoformat(created_at)
-            created_text = created_dt.strftime("%d.%m %H:%M")
-            
-            embed.add_field(
-                name=f"🎯 {role_name}",
-                value=(
-                    f"**Код:** `{link_code}`\n"
-                    f"**Статус:** {status}\n"
-                    f"**Создал:** **{created_by}**\n"
-                    f"**Создано:** {created_text}\n"
-                    f"**Истекает:** {expires_text}"
-                ),
-                inline=False
-            )
-        
-        if not page_links:
-            embed.description = "❌ На этой странице нет команд"
-        
-        view = ActiveLinksView(self.links, page)
-        await interaction.response.edit_message(embed=embed, view=view)
     
     async def show_main_menu(self, interaction: discord.Interaction):
         embed = discord.Embed(
