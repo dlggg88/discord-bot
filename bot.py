@@ -882,4 +882,94 @@ async def создать_команду(ctx, роль: discord.Role, испол�
         role_name=роль.name,
         created_by=ctx.author.id,
         created_by_name=ctx.author.name,
-        uses
+        uses_limit=использование,
+        expires_hours=часы
+    )
+    
+    embed = discord.Embed(
+        title="🔗 Команда создана",
+        description=f"Роль: {роль.mention}",
+        color=0x00ff00
+    )
+    embed.add_field(name="Команда", value=f"`!роль {link_code}`", inline=True)
+    embed.add_field(name="Лимит", value=f"{использование if использование > 0 else '∞'}", inline=True)
+    embed.add_field(name="Срок", value=f"{часы if часы > 0 else '∞'} часов", inline=True)
+    embed.add_field(name="Использование", value="Отправьте команду в чат чтобы получить роль", inline=False)
+    
+    await ctx.author.send(embed=embed)
+    message = await ctx.send("✅ Команда создана! Проверьте личные сообщения.", delete_after=5)
+    await ctx.message.delete()
+    
+    # Удаляем сообщение бота через 5 секунд
+    await asyncio.sleep(5)
+    await message.delete()
+
+# ========== ОСНОВНЫЕ КОМАНДЫ ==========
+
+@bot.command()
+async def помощь(ctx):
+    """Показать все команды"""
+    embed = discord.Embed(
+        title="📋 Команды Multi Bot",
+        description="Доступные команды для управления",
+        color=0x00ff00
+    )
+    
+    embed.add_field(
+        name="🎮 Панели управления",
+        value="`!главная_панель` - главная панель\n`!создать_панель` - панель ролей",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🔗 Управление ролями", 
+        value="`!создать_команду @роль [лимит] [часы]` - создать команду\n`!роль код` - получить роль",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="⚙️ Система",
+        value="`!очистить N` - удалить сообщения (админы)",
+        inline=False
+    )
+    
+    message = await ctx.send(embed=embed)
+    
+    # Удаляем сообщение помощи через 2 минуты
+    await asyncio.sleep(120)
+    try:
+        await message.delete()
+    except:
+        pass
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def очистить(ctx, количество: int = 10):
+    """Удалить сообщения (только для админов)"""
+    await ctx.channel.purge(limit=количество + 1)
+    msg = await ctx.send(f"🗑️ Удалено {количество} сообщений!")
+    await asyncio.sleep(3)
+    await msg.delete()
+
+# ========== ВЕБ-МАРШРУТЫ ==========
+
+@app.route('/health')
+def health():
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "multi-bot",
+        "version": "1.0.0"
+    })
+
+# ========== ЗАПУСК ПРИЛОЖЕНИЯ ==========
+
+if __name__ == '__main__':
+    keep_alive()
+    print(f"🚀 Запускаю Multi Bot на порту {port}")
+    print(f"🔑 Токен: {'установлен' if TOKEN else 'НЕ УСТАНОВЛЕН!'}")
+    
+    try:
+        bot.run(TOKEN)
+    except Exception as e:
+        print(f"❌ Ошибка запуска бота: {e}")
