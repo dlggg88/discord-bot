@@ -183,6 +183,15 @@ class StorageSystem:
             WHERE server_id = ? AND resource_name = ?
         ''', (new_amount, user_id, user_name, server_id, resource_name))
         db.conn.commit()
+    
+    def delete_resource(self, server_id: int, resource_name: str):
+        """Удалить ресурс со склада"""
+        cursor = db.conn.cursor()
+        cursor.execute('''
+            DELETE FROM storage 
+            WHERE server_id = ? AND resource_name = ?
+        ''', (server_id, resource_name))
+        db.conn.commit()
 
 storage_system = StorageSystem()
 
@@ -202,7 +211,7 @@ class CopyLinkModal(Modal):
         self.add_item(self.link_field)
     
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.send_message("✅ Команда скопирована! Теперь вы можете вставить её в чат.", ephemeral=True)
+        await interaction.response.send_message("Команда скопирована! Теперь вы можете вставить её в чат.", ephemeral=True)
 
 class CustomLinkModal(Modal):
     def __init__(self, role):
@@ -277,12 +286,12 @@ class LinkActionsView(View):
         self.link_code = link_code
         self.role_name = role_name
     
-    @discord.ui.button(label="📋 КОПИРОВАТЬ", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Копировать", style=discord.ButtonStyle.success, row=0)
     async def copy_command(self, interaction: discord.Interaction, button: Button):
         modal = CopyLinkModal(f"!роль {self.link_code}")
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="📤 ПОДЕЛИТЬСЯ", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Поделиться", style=discord.ButtonStyle.primary, row=0)
     async def share_link(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title=f"🔗 Получить роль: {self.role_name}",
@@ -301,7 +310,7 @@ class LinkActionsView(View):
         except:
             pass
     
-    @discord.ui.button(label="🎯 ОТПРАВИТЬ", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Отправить", style=discord.ButtonStyle.secondary, row=1)
     async def quick_send(self, interaction: discord.Interaction, button: Button):
         message = await interaction.channel.send(f"**Получить роль '{self.role_name}':**\n```!роль {self.link_code}```")
         await interaction.response.send_message("✅ Команда отправлена в чат!", ephemeral=True)
@@ -439,19 +448,19 @@ class LinkSettingsView(View):
         self.creator_id = creator_id
         self.creator_name = creator_name
     
-    @discord.ui.button(label="🚀 БЕЗ ОГРАНИЧЕНИЙ", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Без ограничений", style=discord.ButtonStyle.success, row=0)
     async def unlimited_button(self, interaction: discord.Interaction, button: Button):
         await self.create_link(interaction, 0, 0)
     
-    @discord.ui.button(label="🎯 10 ИСПОЛЬЗОВАНИЙ", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="10 использований", style=discord.ButtonStyle.primary, row=0)
     async def ten_uses_button(self, interaction: discord.Interaction, button: Button):
         await self.create_link(interaction, 10, 24)
     
-    @discord.ui.button(label="⏰ 24 ЧАСА", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="24 часа", style=discord.ButtonStyle.primary, row=1)
     async def one_day_button(self, interaction: discord.Interaction, button: Button):
         await self.create_link(interaction, 0, 24)
     
-    @discord.ui.button(label="⚙️ КАСТОМНЫЕ", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Кастомные", style=discord.ButtonStyle.secondary, row=1)
     async def custom_button(self, interaction: discord.Interaction, button: Button):
         modal = CustomLinkModal(self.role)
         await interaction.response.send_modal(modal)
@@ -541,7 +550,7 @@ class QuickRoleView(View):
 
 class AddResourceModal(Modal):
     def __init__(self):
-        super().__init__(title="📥 Добавить ресурс")
+        super().__init__(title="Добавить ресурс")
         
         self.resource_name = TextInput(
             label="Название ресурса",
@@ -585,23 +594,14 @@ class AddResourceModal(Modal):
                 user_name=str(interaction.user)
             )
             
-            embed = discord.Embed(
-                title="✅ Ресурс добавлен",
-                description=f"**{self.resource_name.value}** добавлен на склад",
-                color=0x00ff00
-            )
-            embed.add_field(name="Количество", value=f"`{amount}`", inline=True)
-            if self.description.value:
-                embed.add_field(name="Описание", value=self.description.value, inline=False)
-            
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(f"✅ Ресурс **{self.resource_name.value}** добавлен на склад в количестве `{amount}`", ephemeral=True)
             
         except ValueError:
             await interaction.response.send_message("❌ Введите корректное число для количества", ephemeral=True)
 
 class UpdateResourceModal(Modal):
     def __init__(self, resource_name, current_amount):
-        super().__init__(title="📝 Обновить ресурс")
+        super().__init__(title="Обновить ресурс")
         self.resource_name = resource_name
         
         self.new_amount = TextInput(
@@ -629,33 +629,29 @@ class UpdateResourceModal(Modal):
                 user_name=str(interaction.user)
             )
             
-            embed = discord.Embed(
-                title="✅ Ресурс обновлен",
-                description=f"**{self.resource_name}** обновлен",
-                color=0x00ff00
-            )
-            embed.add_field(name="Новое количество", value=f"`{new_amount}`", inline=True)
-            
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(f"✅ Ресурс **{self.resource_name}** обновлен. Новое количество: `{new_amount}`", ephemeral=True)
             
         except ValueError:
             await interaction.response.send_message("❌ Введите корректное число для количества", ephemeral=True)
 
 # ========== ПАНЕЛЬ СКЛАДА С КНОПКАМИ ==========
 
-class StorageView(View):
+class StorageMainView(View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="📊 БАЛАНС", style=discord.ButtonStyle.primary, emoji="📊", custom_id="storage_balance", row=0)
+    @discord.ui.button(label="Баланс", style=discord.ButtonStyle.primary, emoji="📊", custom_id="storage_balance", row=0)
     async def balance_button(self, interaction: discord.Interaction, button: Button):
         try:
-            await interaction.response.defer(ephemeral=True)
-            
             resources = storage_system.get_resources(interaction.guild.id)
             
             if not resources:
-                await interaction.followup.send("📭 Склад пуст. Добавьте ресурсы с помощью кнопки '📥 ДОБАВИТЬ'", ephemeral=True)
+                embed = discord.Embed(
+                    title="📦 Склад пуст",
+                    description="Добавьте ресурсы с помощью кнопки 'Добавить'",
+                    color=0x9567FE
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
             
             embed = discord.Embed(
@@ -670,14 +666,15 @@ class StorageView(View):
                 last_updated_dt = datetime.fromisoformat(last_updated)
                 last_updated_text = last_updated_dt.strftime("%d.%m %H:%M")
                 
+                field_value = f"**Количество:** `{amount}`\n"
+                if description:
+                    field_value += f"**Описание:** {description}\n"
+                field_value += f"**Обновил:** {updated_by}\n**Время:** {last_updated_text}"
+                
                 embed.add_field(
                     name=f"📦 {resource_name}",
-                    value=(
-                        f"**Количество:** `{amount}`\n"
-                        f"**Обновил:** {updated_by}\n"
-                        f"**Время:** {last_updated_text}"
-                    ),
-                    inline=True
+                    value=field_value,
+                    inline=False
                 )
             
             embed.add_field(
@@ -686,50 +683,25 @@ class StorageView(View):
                 inline=False
             )
             
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            view = StorageActionsView(resources)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
             
         except Exception as e:
             print(f"Ошибка в balance_button: {e}")
-            await interaction.followup.send("❌ Ошибка при загрузке баланса", ephemeral=True)
+            await interaction.response.send_message("❌ Ошибка при загрузке баланса", ephemeral=True)
     
-    @discord.ui.button(label="📥 ДОБАВИТЬ", style=discord.ButtonStyle.success, emoji="📥", custom_id="storage_add", row=0)
+    @discord.ui.button(label="Добавить", style=discord.ButtonStyle.success, emoji="📥", custom_id="storage_add", row=0)
     async def add_button(self, interaction: discord.Interaction, button: Button):
         modal = AddResourceModal()
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="📝 РЕДАКТИРОВАТЬ", style=discord.ButtonStyle.secondary, emoji="📝", custom_id="storage_edit", row=1)
-    async def edit_button(self, interaction: discord.Interaction, button: Button):
-        try:
-            await interaction.response.defer(ephemeral=True)
-            
-            resources = storage_system.get_resources(interaction.guild.id)
-            
-            if not resources:
-                await interaction.followup.send("📭 Склад пуст. Сначала добавьте ресурсы", ephemeral=True)
-                return
-            
-            embed = discord.Embed(
-                title="📝 Редактирование ресурсов",
-                description="Выберите ресурс для редактирования:",
-                color=0x9567FE
-            )
-            
-            view = ResourceEditView(resources)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-            
-        except Exception as e:
-            print(f"Ошибка в edit_button: {e}")
-            await interaction.followup.send("❌ Ошибка при загрузке ресурсов", ephemeral=True)
-    
-    @discord.ui.button(label="📈 СТАТИСТИКА", style=discord.ButtonStyle.primary, emoji="📈", custom_id="storage_stats", row=1)
+    @discord.ui.button(label="Статистика", style=discord.ButtonStyle.primary, emoji="📈", custom_id="storage_stats", row=1)
     async def stats_button(self, interaction: discord.Interaction, button: Button):
         try:
-            await interaction.response.defer(ephemeral=True)
-            
             resources = storage_system.get_resources(interaction.guild.id)
             
             if not resources:
-                await interaction.followup.send("📭 Склад пуст", ephemeral=True)
+                await interaction.response.send_message("📭 Склад пуст", ephemeral=True)
                 return
             
             total_resources = len(resources)
@@ -756,19 +728,19 @@ class StorageView(View):
             top_text = "\n".join([f"• **{name}** - `{amount}`" for name, amount, _, _, _ in top_resources])
             embed.add_field(name="🏅 Топ 5 ресурсов", value=top_text, inline=False)
             
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             
         except Exception as e:
             print(f"Ошибка в stats_button: {e}")
-            await interaction.followup.send("❌ Ошибка при загрузке статистики", ephemeral=True)
+            await interaction.response.send_message("❌ Ошибка при загрузке статистики", ephemeral=True)
 
-class ResourceEditView(View):
+class StorageActionsView(View):
     def __init__(self, resources):
         super().__init__(timeout=180)
         self.resources = resources
         
         self.select = Select(
-            placeholder="Выберите ресурс для редактирования...",
+            placeholder="Выберите ресурс для действий...",
             options=[
                 discord.SelectOption(
                     label=f"{name} ({amount})",
@@ -782,11 +754,76 @@ class ResourceEditView(View):
     
     async def resource_selected(self, interaction: discord.Interaction):
         resource_name = self.select.values[0]
-        # Находим текущее количество ресурса
-        current_amount = next((amount for name, amount, _, _, _ in self.resources if name == resource_name), 0)
         
-        modal = UpdateResourceModal(resource_name, current_amount)
+        embed = discord.Embed(
+            title=f"📦 Действия с {resource_name}",
+            color=0x9567FE
+        )
+        
+        view = ResourceActionsView(resource_name, self.resources)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+class ResourceActionsView(View):
+    def __init__(self, resource_name, resources):
+        super().__init__(timeout=180)
+        self.resource_name = resource_name
+        self.resources = resources
+    
+    @discord.ui.button(label="Изменить количество", style=discord.ButtonStyle.primary, row=0)
+    async def edit_amount(self, interaction: discord.Interaction, button: Button):
+        current_amount = next((amount for name, amount, _, _, _ in self.resources if name == self.resource_name), 0)
+        modal = UpdateResourceModal(self.resource_name, current_amount)
         await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Удалить", style=discord.ButtonStyle.danger, row=0)
+    async def delete_resource(self, interaction: discord.Interaction, button: Button):
+        storage_system.delete_resource(interaction.guild.id, self.resource_name)
+        await interaction.response.send_message(f"✅ Ресурс **{self.resource_name}** удален со склада", ephemeral=True)
+    
+    @discord.ui.button(label="Назад", style=discord.ButtonStyle.secondary, row=1)
+    async def back_button(self, interaction: discord.Interaction, button: Button):
+        resources = storage_system.get_resources(interaction.guild.id)
+        
+        if not resources:
+            embed = discord.Embed(
+                title="📦 Склад пуст",
+                description="Добавьте ресурсы с помощью кнопки 'Добавить'",
+                color=0x9567FE
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+            return
+        
+        embed = discord.Embed(
+            title="📦 Баланс склада",
+            description=f"Всего ресурсов: {len(resources)}",
+            color=0x9567FE
+        )
+        
+        total_value = 0
+        for resource_name, amount, description, updated_by, last_updated in resources:
+            total_value += amount
+            last_updated_dt = datetime.fromisoformat(last_updated)
+            last_updated_text = last_updated_dt.strftime("%d.%m %H:%M")
+            
+            field_value = f"**Количество:** `{amount}`\n"
+            if description:
+                field_value += f"**Описание:** {description}\n"
+            field_value += f"**Обновил:** {updated_by}\n**Время:** {last_updated_text}"
+            
+            embed.add_field(
+                name=f"📦 {resource_name}",
+                value=field_value,
+                inline=False
+            )
+        
+        embed.add_field(
+            name="💰 Общая стоимость",
+            value=f"`{total_value}` единиц",
+            inline=False
+        )
+        
+        view = StorageActionsView(resources)
+        await interaction.response.edit_message(embed=embed, view=view)
 
 # ========== ОСНОВНЫЕ ПАНЕЛИ ==========
 
@@ -794,15 +831,13 @@ class PermanentRoleView(View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="СОЗДАТЬ КОМАНДУ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="perm_create_link", row=0)
+    @discord.ui.button(label="Создать команду", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="perm_create_link", row=0)
     async def create_link_button(self, interaction: discord.Interaction, button: Button):
         try:
-            await interaction.response.defer(ephemeral=True)
-            
             roles = [role for role in interaction.guild.roles if role.name != "@everyone" and not role.managed]
             
             if not roles:
-                await interaction.followup.send("❌ На сервере нет доступных ролей", ephemeral=True)
+                await interaction.response.send_message("❌ На сервере нет доступных ролей", ephemeral=True)
                 return
             
             embed = discord.Embed(
@@ -812,21 +847,19 @@ class PermanentRoleView(View):
             )
             
             view = RoleSelectView(roles, "create")
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
             
         except Exception as e:
             print(f"Ошибка в create_link_button: {e}")
-            await interaction.followup.send("❌ Произошла ошибка при создании команды", ephemeral=True)
+            await interaction.response.send_message("❌ Произошла ошибка при создании команды", ephemeral=True)
     
-    @discord.ui.button(label="АКТИВНЫЕ КОМАНДЫ", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="perm_active_links", row=0)
+    @discord.ui.button(label="Активные команды", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="perm_active_links", row=0)
     async def active_links_button(self, interaction: discord.Interaction, button: Button):
         try:
-            await interaction.response.defer(ephemeral=True)
-            
             links = role_link_system.get_active_links(interaction.guild.id)
             
             if not links:
-                await interaction.followup.send("❌ Нет активных команд", ephemeral=True)
+                await interaction.response.send_message("❌ Нет активных команд", ephemeral=True)
                 return
             
             embed = discord.Embed(
@@ -866,21 +899,19 @@ class PermanentRoleView(View):
                 embed.set_footer(text=f"И еще {len(links) - 5} команд... Используйте кнопки для навигации")
             
             view = ActiveLinksView(links)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
             
         except Exception as e:
             print(f"Ошибка в active_links_button: {e}")
-            await interaction.followup.send("❌ Произошла ошибка при загрузке команд", ephemeral=True)
+            await interaction.response.send_message("❌ Произошла ошибка при загрузке команд", ephemeral=True)
     
-    @discord.ui.button(label="БЫСТРАЯ КОМАНДА", style=discord.ButtonStyle.success, emoji="⚡", custom_id="perm_quick_link", row=1)
+    @discord.ui.button(label="Быстрая команда", style=discord.ButtonStyle.success, emoji="⚡", custom_id="perm_quick_link", row=1)
     async def quick_link_button(self, interaction: discord.Interaction, button: Button):
         try:
-            await interaction.response.defer(ephemeral=True)
-            
             roles = [role for role in interaction.guild.roles if role.name != "@everyone" and not role.managed]
             
             if not roles:
-                await interaction.followup.send("❌ На сервере нет доступных ролей", ephemeral=True)
+                await interaction.response.send_message("❌ На сервере нет доступных ролей", ephemeral=True)
                 return
             
             embed = discord.Embed(
@@ -891,55 +922,51 @@ class PermanentRoleView(View):
             
             popular_roles = roles[:5]
             view = QuickRoleView(popular_roles, interaction.user.id, str(interaction.user))
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
             
         except Exception as e:
             print(f"Ошибка в quick_link_button: {e}")
-            await interaction.followup.send("❌ Произошла ошибка при создании быстрой команды", ephemeral=True)
+            await interaction.response.send_message("❌ Произошла ошибка при создании быстрой команды", ephemeral=True)
     
-    @discord.ui.button(label="ПОМОЩЬ", style=discord.ButtonStyle.danger, emoji="❓", custom_id="perm_help", row=1)
+    @discord.ui.button(label="Помощь", style=discord.ButtonStyle.danger, emoji="❓", custom_id="perm_help", row=1)
     async def help_button(self, interaction: discord.Interaction, button: Button):
-        try:
-            embed = discord.Embed(
-                title="📋 Помощь по командам",
-                description="Как использовать систему ролей:",
-                color=0x5865F2
-            )
-            
-            embed.add_field(
-                name="🎮 Создать команду",
-                value="Создает команду для выдачи роли с настройками",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="📊 Активные команды", 
-                value="Показывает все активные команды и их статус",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="⚡ Быстрая команда",
-                value="Создает команду на 24 часа без ограничений",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="🎯 Использование",
-                value="Отправьте `!роль КОД` в чат чтобы получить роль",
-                inline=False
-            )
-            
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-        except Exception as e:
-            print(f"Ошибка в help_button: {e}")
-            await interaction.response.send_message("❌ Произошла ошибка", ephemeral=True)
+        embed = discord.Embed(
+            title="📋 Помощь по командам",
+            description="Как использовать систему ролей:",
+            color=0x5865F2
+        )
+        
+        embed.add_field(
+            name="🎮 Создать команду",
+            value="Создает команду для выдачи роли с настройками",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📊 Активные команды", 
+            value="Показывает все активные команды и их статус",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⚡ Быстрая команда",
+            value="Создает команду на 24 часа без ограничений",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🎯 Использование",
+            value="Отправьте `!роль КОД` в чат чтобы получить роль",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 class MainPanelView(View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="УПРАВЛЕНИЕ РОЛЯМИ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="main_roles", row=0)
+    @discord.ui.button(label="Управление ролями", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="main_roles", row=0)
     async def roles_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title="🎮 Управление ролями",
@@ -968,7 +995,7 @@ class MainPanelView(View):
         view = PermanentRoleView()
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
-    @discord.ui.button(label="УПРАВЛЕНИЕ УЧАСТНИКАМИ", style=discord.ButtonStyle.secondary, emoji="👥", custom_id="main_members", row=0)
+    @discord.ui.button(label="Управление участниками", style=discord.ButtonStyle.secondary, emoji="👥", custom_id="main_members", row=0)
     async def members_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title="👥 Управление участниками",
@@ -996,7 +1023,7 @@ class MainPanelView(View):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
     
-    @discord.ui.button(label="СКЛАД", style=discord.ButtonStyle.success, emoji="📦", custom_id="main_storage", row=1)
+    @discord.ui.button(label="Склад", style=discord.ButtonStyle.success, emoji="📦", custom_id="main_storage", row=1)
     async def storage_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title="📦 Управление складом",
@@ -1017,21 +1044,15 @@ class MainPanelView(View):
         )
         
         embed.add_field(
-            name="📝 Редактировать",
-            value="Изменить количество ресурсов",
-            inline=True
-        )
-        
-        embed.add_field(
             name="📈 Статистика",
             value="Анализ использования ресурсов",
             inline=True
         )
         
-        view = StorageView()
+        view = StorageMainView()
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
-    @discord.ui.button(label="О СИСТЕМЕ", style=discord.ButtonStyle.danger, emoji="ℹ️", custom_id="main_about", row=1)
+    @discord.ui.button(label="О системе", style=discord.ButtonStyle.danger, emoji="ℹ️", custom_id="main_about", row=1)
     async def about_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title="ℹ️ О системе Multi Bot",
@@ -1083,7 +1104,7 @@ async def on_ready():
     # Регистрируем постоянные кнопки
     bot.add_view(PermanentRoleView())
     bot.add_view(MainPanelView())
-    bot.add_view(StorageView())
+    bot.add_view(StorageMainView())
     
     # Устанавливаем статус
     activity = discord.Activity(type=discord.ActivityType.watching, name="за сервером")
@@ -1193,6 +1214,44 @@ async def главная_панель(ctx):
     )
     
     view = MainPanelView()
+    message = await ctx.send(embed=embed, view=view)
+    
+    try:
+        await message.pin()
+    except:
+        pass
+    
+    await ctx.message.delete()
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def склад(ctx):
+    """Создать отдельную панель склада"""
+    embed = discord.Embed(
+        title="📦 Управление складом",
+        description="Система управления ресурсами сервера",
+        color=0x9567FE
+    )
+    
+    embed.add_field(
+        name="📊 Баланс",
+        value="Просмотр всех ресурсов на складе",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="📥 Добавить",
+        value="Добавить новый ресурс на склад",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="📈 Статистика",
+        value="Анализ использования ресурсов",
+        inline=True
+    )
+    
+    view = StorageMainView()
     message = await ctx.send(embed=embed, view=view)
     
     try:
