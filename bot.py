@@ -634,61 +634,15 @@ class UpdateResourceModal(Modal):
         except ValueError:
             await interaction.response.send_message("❌ Введите корректное число для количества", ephemeral=True)
 
-# ========== ПАНЕЛЬ СКЛАДА С КНОПКАМИ ==========
+# ========== ПАНЕЛЬ СКЛАДА В 1 ОКНЕ ==========
 
 class StorageMainView(View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="Баланс", style=discord.ButtonStyle.primary, emoji="📊", custom_id="storage_balance", row=0)
-    async def balance_button(self, interaction: discord.Interaction, button: Button):
-        try:
-            resources = storage_system.get_resources(interaction.guild.id)
-            
-            if not resources:
-                embed = discord.Embed(
-                    title="📦 Склад пуст",
-                    description="Добавьте ресурсы с помощью кнопки 'Добавить'",
-                    color=0x9567FE
-                )
-                await interaction.response.send_message(embed=embed, ephemeral=True)
-                return
-            
-            embed = discord.Embed(
-                title="📦 Баланс склада",
-                description=f"Всего ресурсов: {len(resources)}",
-                color=0x9567FE
-            )
-            
-            total_value = 0
-            for resource_name, amount, description, updated_by, last_updated in resources:
-                total_value += amount
-                last_updated_dt = datetime.fromisoformat(last_updated)
-                last_updated_text = last_updated_dt.strftime("%d.%m %H:%M")
-                
-                field_value = f"**Количество:** `{amount}`\n"
-                if description:
-                    field_value += f"**Описание:** {description}\n"
-                field_value += f"**Обновил:** {updated_by}\n**Время:** {last_updated_text}"
-                
-                embed.add_field(
-                    name=f"📦 {resource_name}",
-                    value=field_value,
-                    inline=False
-                )
-            
-            embed.add_field(
-                name="💰 Общая стоимость",
-                value=f"`{total_value}` единиц",
-                inline=False
-            )
-            
-            view = StorageActionsView(resources)
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-            
-        except Exception as e:
-            print(f"Ошибка в balance_button: {e}")
-            await interaction.response.send_message("❌ Ошибка при загрузке баланса", ephemeral=True)
+    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.primary, emoji="🔄", custom_id="storage_refresh", row=0)
+    async def refresh_button(self, interaction: discord.Interaction, button: Button):
+        await self.show_storage(interaction)
     
     @discord.ui.button(label="Добавить", style=discord.ButtonStyle.success, emoji="📥", custom_id="storage_add", row=0)
     async def add_button(self, interaction: discord.Interaction, button: Button):
@@ -697,6 +651,87 @@ class StorageMainView(View):
     
     @discord.ui.button(label="Статистика", style=discord.ButtonStyle.primary, emoji="📈", custom_id="storage_stats", row=1)
     async def stats_button(self, interaction: discord.Interaction, button: Button):
+        await self.show_statistics(interaction)
+    
+    @discord.ui.button(label="Управление", style=discord.ButtonStyle.secondary, emoji="⚙️", custom_id="storage_manage", row=1)
+    async def manage_button(self, interaction: discord.Interaction, button: Button):
+        await self.show_management(interaction)
+    
+    async def show_storage(self, interaction: discord.Interaction = None, is_response: bool = True):
+        """Показать склад в одном окне"""
+        try:
+            resources = storage_system.get_resources(interaction.guild.id)
+            
+            embed = discord.Embed(
+                title="📦 СКЛАД СЕРВЕРА",
+                color=0x9567FE,
+                timestamp=datetime.now()
+            )
+            
+            if not resources:
+                embed.description = "📭 Склад пуст. Добавьте ресурсы с помощью кнопки 'Добавить'"
+                if is_response:
+                    await interaction.response.send_message(embed=embed, view=self, ephemeral=True)
+                else:
+                    await interaction.edit_original_response(embed=embed, view=self)
+                return
+            
+            # Общая статистика
+            total_resources = len(resources)
+            total_amount = sum(amount for _, amount, _, _, _ in resources)
+            
+            embed.add_field(
+                name="📊 ОБЩАЯ СТАТИСТИКА",
+                value=f"**Ресурсов:** {total_resources}\n**Всего единиц:** {total_amount}",
+                inline=False
+            )
+            
+            # Таблица ресурсов в виде кода для лучшего отображения
+            table_header = "┌─────────────────┬─────────────┬─────────────────┐\n"
+            table_header += "│     РЕСУРС      │ КОЛИЧЕСТВО  │    ОБНОВЛЕНО    │\n"
+            table_header += "├─────────────────┼─────────────┼─────────────────┤\n"
+            
+            table_rows = []
+            for resource_name, amount, description, updated_by, last_updated in resources:
+                # Обрезаем длинные названия
+                name_display = resource_name[:14] + "..." if len(resource_name) > 14 else resource_name.ljust(14)
+                amount_display = str(amount).ljust(10)
+                
+                # Форматируем время
+                last_updated_dt = datetime.fromisoformat(last_updated)
+                time_display = last_updated_dt.strftime("%d.%m %H:%M")
+                
+                table_rows.append(f"│ {name_display} │ {amount_display} │ {time_display} │")
+            
+            table_footer = "└─────────────────┴─────────────┴─────────────────┘"
+            
+            table_content = table_header + "\n".join(table_rows) + "\n" + table_footer
+            
+            embed.add_field(
+                name="📋 ТАБЛИЦА РЕСУРСОВ",
+                value=f"```{table_content}```",
+                inline=False
+            )
+            
+            # Информация о последнем обновлении
+            if resources:
+                last_resource = resources[0]
+                embed.set_footer(text=f"Последнее обновление: {last_resource[3]}")
+            
+            if is_response:
+                await interaction.response.send_message(embed=embed, view=self, ephemeral=True)
+            else:
+                await interaction.edit_original_response(embed=embed, view=self)
+            
+        except Exception as e:
+            print(f"Ошибка в show_storage: {e}")
+            if is_response:
+                await interaction.response.send_message("❌ Ошибка при загрузке склада", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Ошибка при загрузке склада", ephemeral=True)
+    
+    async def show_statistics(self, interaction: discord.Interaction):
+        """Показать статистику склада"""
         try:
             resources = storage_system.get_resources(interaction.guild.id)
             
@@ -706,41 +741,96 @@ class StorageMainView(View):
             
             total_resources = len(resources)
             total_amount = sum(amount for _, amount, _, _, _ in resources)
-            most_common = max(resources, key=lambda x: x[1]) if resources else None
+            avg_amount = total_amount // total_resources if total_resources > 0 else 0
+            
+            # Самые популярные ресурсы
+            top_resources = sorted(resources, key=lambda x: x[1], reverse=True)[:3]
+            least_resources = sorted(resources, key=lambda x: x[1])[:3]
             
             embed = discord.Embed(
-                title="📈 Статистика склада",
-                color=0x9567FE
+                title="📈 СТАТИСТИКА СКЛАДА",
+                color=0x9567FE,
+                timestamp=datetime.now()
             )
             
-            embed.add_field(name="📊 Всего ресурсов", value=f"`{total_resources}` видов", inline=True)
-            embed.add_field(name="💰 Общее количество", value=f"`{total_amount}` единиц", inline=True)
+            # Основная статистика
+            embed.add_field(
+                name="📊 ОСНОВНЫЕ ПОКАЗАТЕЛИ",
+                value=(
+                    f"**Всего ресурсов:** {total_resources}\n"
+                    f"**Общее количество:** {total_amount}\n"
+                    f"**Среднее количество:** {avg_amount}"
+                ),
+                inline=False
+            )
             
-            if most_common:
+            # Топ ресурсов
+            top_text = "\n".join([f"• **{name}** - `{amount}`" for name, amount, _, _, _ in top_resources])
+            embed.add_field(
+                name="🏆 ТОП-3 РЕСУРСА",
+                value=top_text,
+                inline=True
+            )
+            
+            # Наименьшие ресурсы
+            least_text = "\n".join([f"• **{name}** - `{amount}`" for name, amount, _, _, _ in least_resources])
+            embed.add_field(
+                name="📉 МИНИМАЛЬНЫЕ",
+                value=least_text,
+                inline=True
+            )
+            
+            # Распределение
+            if total_amount > 0:
+                distribution = []
+                for name, amount, _, _, _ in top_resources:
+                    percentage = (amount / total_amount) * 100
+                    distribution.append(f"• **{name}** - {percentage:.1f}%")
+                
                 embed.add_field(
-                    name="🏆 Самый частый ресурс",
-                    value=f"**{most_common[0]}** - `{most_common[1]}` единиц",
+                    name="📐 РАСПРЕДЕЛЕНИЕ",
+                    value="\n".join(distribution),
                     inline=False
                 )
             
-            # Топ 5 ресурсов по количеству
-            top_resources = sorted(resources, key=lambda x: x[1], reverse=True)[:5]
-            top_text = "\n".join([f"• **{name}** - `{amount}`" for name, amount, _, _, _ in top_resources])
-            embed.add_field(name="🏅 Топ 5 ресурсов", value=top_text, inline=False)
-            
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            view = StorageMainView()
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
             
         except Exception as e:
-            print(f"Ошибка в stats_button: {e}")
+            print(f"Ошибка в show_statistics: {e}")
             await interaction.response.send_message("❌ Ошибка при загрузке статистики", ephemeral=True)
+    
+    async def show_management(self, interaction: discord.Interaction):
+        """Показать управление ресурсами"""
+        try:
+            resources = storage_system.get_resources(interaction.guild.id)
+            
+            if not resources:
+                await interaction.response.send_message("📭 Склад пуст. Сначала добавьте ресурсы", ephemeral=True)
+                return
+            
+            embed = discord.Embed(
+                title="⚙️ УПРАВЛЕНИЕ РЕСУРСАМИ",
+                description="Выберите ресурс для управления:",
+                color=0x9567FE
+            )
+            
+            # Создаем кнопки для каждого ресурса
+            view = ResourceManagementView(resources)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            print(f"Ошибка в show_management: {e}")
+            await interaction.response.send_message("❌ Ошибка при загрузке управления", ephemeral=True)
 
-class StorageActionsView(View):
+class ResourceManagementView(View):
     def __init__(self, resources):
         super().__init__(timeout=180)
         self.resources = resources
         
+        # Создаем выпадающий список для выбора ресурса
         self.select = Select(
-            placeholder="Выберите ресурс для действий...",
+            placeholder="Выберите ресурс...",
             options=[
                 discord.SelectOption(
                     label=f"{name} ({amount})",
@@ -754,76 +844,37 @@ class StorageActionsView(View):
     
     async def resource_selected(self, interaction: discord.Interaction):
         resource_name = self.select.values[0]
+        current_amount = next((amount for name, amount, _, _, _ in self.resources if name == resource_name), 0)
         
         embed = discord.Embed(
-            title=f"📦 Действия с {resource_name}",
+            title=f"⚙️ Управление: {resource_name}",
+            description=f"Текущее количество: `{current_amount}`",
             color=0x9567FE
         )
         
-        view = ResourceActionsView(resource_name, self.resources)
+        view = ResourceActionsView(resource_name, current_amount)
         await interaction.response.edit_message(embed=embed, view=view)
 
 class ResourceActionsView(View):
-    def __init__(self, resource_name, resources):
+    def __init__(self, resource_name, current_amount):
         super().__init__(timeout=180)
         self.resource_name = resource_name
-        self.resources = resources
+        self.current_amount = current_amount
     
     @discord.ui.button(label="Изменить количество", style=discord.ButtonStyle.primary, row=0)
     async def edit_amount(self, interaction: discord.Interaction, button: Button):
-        current_amount = next((amount for name, amount, _, _, _ in self.resources if name == self.resource_name), 0)
-        modal = UpdateResourceModal(self.resource_name, current_amount)
+        modal = UpdateResourceModal(self.resource_name, self.current_amount)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="Удалить", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="Удалить ресурс", style=discord.ButtonStyle.danger, row=0)
     async def delete_resource(self, interaction: discord.Interaction, button: Button):
         storage_system.delete_resource(interaction.guild.id, self.resource_name)
         await interaction.response.send_message(f"✅ Ресурс **{self.resource_name}** удален со склада", ephemeral=True)
     
-    @discord.ui.button(label="Назад", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Назад к складу", style=discord.ButtonStyle.secondary, row=1)
     async def back_button(self, interaction: discord.Interaction, button: Button):
-        resources = storage_system.get_resources(interaction.guild.id)
-        
-        if not resources:
-            embed = discord.Embed(
-                title="📦 Склад пуст",
-                description="Добавьте ресурсы с помощью кнопки 'Добавить'",
-                color=0x9567FE
-            )
-            await interaction.response.edit_message(embed=embed, view=None)
-            return
-        
-        embed = discord.Embed(
-            title="📦 Баланс склада",
-            description=f"Всего ресурсов: {len(resources)}",
-            color=0x9567FE
-        )
-        
-        total_value = 0
-        for resource_name, amount, description, updated_by, last_updated in resources:
-            total_value += amount
-            last_updated_dt = datetime.fromisoformat(last_updated)
-            last_updated_text = last_updated_dt.strftime("%d.%m %H:%M")
-            
-            field_value = f"**Количество:** `{amount}`\n"
-            if description:
-                field_value += f"**Описание:** {description}\n"
-            field_value += f"**Обновил:** {updated_by}\n**Время:** {last_updated_text}"
-            
-            embed.add_field(
-                name=f"📦 {resource_name}",
-                value=field_value,
-                inline=False
-            )
-        
-        embed.add_field(
-            name="💰 Общая стоимость",
-            value=f"`{total_value}` единиц",
-            inline=False
-        )
-        
-        view = StorageActionsView(resources)
-        await interaction.response.edit_message(embed=embed, view=view)
+        view = StorageMainView()
+        await view.show_storage(interaction, is_response=False)
 
 # ========== ОСНОВНЫЕ ПАНЕЛИ ==========
 
@@ -1025,32 +1076,8 @@ class MainPanelView(View):
     
     @discord.ui.button(label="Склад", style=discord.ButtonStyle.success, emoji="📦", custom_id="main_storage", row=1)
     async def storage_button(self, interaction: discord.Interaction, button: Button):
-        embed = discord.Embed(
-            title="📦 Управление складом",
-            description="Система управления ресурсами сервера",
-            color=0x9567FE
-        )
-        
-        embed.add_field(
-            name="📊 Баланс",
-            value="Просмотр всех ресурсов на складе",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="📥 Добавить",
-            value="Добавить новый ресурс на склад",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="📈 Статистика",
-            value="Анализ использования ресурсов",
-            inline=True
-        )
-        
         view = StorageMainView()
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await view.show_storage(interaction)
     
     @discord.ui.button(label="О системе", style=discord.ButtonStyle.danger, emoji="ℹ️", custom_id="main_about", row=1)
     async def about_button(self, interaction: discord.Interaction, button: Button):
@@ -1227,39 +1254,8 @@ async def главная_панель(ctx):
 @commands.has_permissions(administrator=True)
 async def склад(ctx):
     """Создать отдельную панель склада"""
-    embed = discord.Embed(
-        title="📦 Управление складом",
-        description="Система управления ресурсами сервера",
-        color=0x9567FE
-    )
-    
-    embed.add_field(
-        name="📊 Баланс",
-        value="Просмотр всех ресурсов на складе",
-        inline=True
-    )
-    
-    embed.add_field(
-        name="📥 Добавить",
-        value="Добавить новый ресурс на склад",
-        inline=True
-    )
-    
-    embed.add_field(
-        name="📈 Статистика",
-        value="Анализ использования ресурсов",
-        inline=True
-    )
-    
     view = StorageMainView()
-    message = await ctx.send(embed=embed, view=view)
-    
-    try:
-        await message.pin()
-    except:
-        pass
-    
-    await ctx.message.delete()
+    await view.show_storage(ctx)
 
 # ========== КОМАНДА ДЛЯ ПОЛУЧЕНИЯ РОЛИ (СЕКРЕТНАЯ) ==========
 
