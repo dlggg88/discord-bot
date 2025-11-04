@@ -185,8 +185,9 @@ warehouse_system = WarehouseSystem()
 # ========== МОДАЛЬНЫЕ ОКНА ДЛЯ СКЛАДА ==========
 
 class AddItemModal(Modal):
-    def __init__(self):
+    def __init__(self, original_message=None):
         super().__init__(title="📦 Добавить предмет")
+        self.original_message = original_message
         
         self.item_name = TextInput(
             label="Название предмета",
@@ -270,53 +271,65 @@ class AddItemModal(Modal):
                 created_by_name=interaction.user.name
             )
             
-            # Сначала отправляем подтверждение
+            # Отправляем подтверждение
             await interaction.response.send_message(
                 f"✅ Предмет '{self.item_name.value}' добавлен на склад!", 
                 ephemeral=True
             )
             
-            # Затем обновляем панель склада через followup
-            items = warehouse_system.get_warehouse_items(interaction.guild.id)
-            
-            embed = discord.Embed(
-                title="📦 Учет склада",
-                description=f"Всего предметов: {len(items)}",
-                color=0x3498db
-            )
-            
-            if not items:
-                embed.description = "📭 Склад пуст"
-            else:
-                items_text = ""
-                for item in items[:20]:
-                    item_id, name, category, quantity, unit, min_stock, location, notes, created_by, updated = item
-                    
-                    status = "🟢"
-                    if min_stock > 0 and quantity <= min_stock:
-                        status = "🟡" if quantity > 0 else "🔴"
-                    
-                    item_line = f"{status} **{name}** - {quantity} {unit}"
-                    if location:
-                        item_line += f" | 🗂️ {location}"
-                    
-                    items_text += f"{item_line}\n"
-                
-                embed.add_field(
-                    name="📋 Список предметов",
-                    value=items_text,
-                    inline=False
-                )
-                
-                if len(items) > 20:
-                    embed.set_footer(text=f"Показано 20 из {len(items)} предметов")
-            
-            view = WarehousePanel()
-            # Используем followup для редактирования исходного сообщения
-            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=view)
+            # Обновляем панель склада
+            await self.update_warehouse_panel(interaction)
             
         except ValueError:
             await interaction.response.send_message("❌ Введите корректные числа для количества", ephemeral=True)
+    
+    async def update_warehouse_panel(self, interaction: discord.Interaction):
+        """Обновляет панель склада"""
+        items = warehouse_system.get_warehouse_items(interaction.guild.id)
+        
+        embed = discord.Embed(
+            title="📦 Учет склада",
+            description=f"Всего предметов: {len(items)}",
+            color=0x3498db
+        )
+        
+        if not items:
+            embed.description = "📭 Склад пуст"
+        else:
+            items_text = ""
+            for item in items[:20]:
+                item_id, name, category, quantity, unit, min_stock, location, notes, created_by, updated = item
+                
+                status = "🟢"
+                if min_stock > 0 and quantity <= min_stock:
+                    status = "🟡" if quantity > 0 else "🔴"
+                
+                item_line = f"{status} **{name}** - {quantity} {unit}"
+                if location:
+                    item_line += f" | 🗂️ {location}"
+                
+                items_text += f"{item_line}\n"
+            
+            embed.add_field(
+                name="📋 Список предметов",
+                value=items_text,
+                inline=False
+            )
+            
+            if len(items) > 20:
+                embed.set_footer(text=f"Показано 20 из {len(items)} предметов")
+        
+        view = WarehousePanel()
+        
+        # Ищем и обновляем сообщение панели склада
+        try:
+            async for message in interaction.channel.history(limit=20):
+                if message.author == interaction.client.user and len(message.embeds) > 0:
+                    if message.embeds[0].title and "📦 Учет склада" in message.embeds[0].title:
+                        await message.edit(embed=embed, view=view)
+                        break
+        except Exception as e:
+            print(f"Ошибка при обновлении панели: {e}")
 
 # ========== ОТДЕЛЬНАЯ ПАНЕЛЬ СКЛАДА ==========
 
@@ -326,7 +339,8 @@ class WarehousePanel(View):
     
     @discord.ui.button(label="ДОБАВИТЬ", style=discord.ButtonStyle.success, emoji="📦", row=0)
     async def add_item(self, interaction: discord.Interaction, button: Button):
-        modal = AddItemModal()
+        # Передаем текущее сообщение в модальное окно
+        modal = AddItemModal(original_message=interaction.message)
         await interaction.response.send_modal(modal)
     
     @discord.ui.button(label="ПРЕДМЕТЫ", style=discord.ButtonStyle.primary, emoji="📋", row=0)
