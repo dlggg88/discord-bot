@@ -12,6 +12,759 @@ import aiohttp
 import secrets
 from typing import Dict, List, Optional
 
+# Конфигурация Flask для Railway
+app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
+port = int(os.environ.get("PORT", 8080))
+
+@app.route('/')
+def home():
+    return "🟢 Multi Bot System Online"
+
+@app.errorhandler(500)
+def internal_error(error):
+    return "❌ Internal Server Error", 500
+
+@app.errorhandler(404)
+def not_found(error):
+    return "🔍 Page Not Found", 404
+
+def run_flask():
+    app.run(host='0.0.0.0', port=port, debug=False)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.daemon = True
+    t.start()
+
+# ========== БАЗА ДАННЫХ ==========
+class Database:
+    def __init__(self):
+        self.conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+        self.create_tables()
+    
+    def create_tables(self):
+        cursor = self.conn.cursor()
+        
+        # Таблица для ссылок ролей
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS role_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                server_id INTEGER,
+                role_id INTEGER,
+                link_code TEXT UNIQUE,
+                role_name TEXT,
+                uses_limit INTEGER DEFAULT 0,
+                uses_count INTEGER DEFAULT 0,
+                expires_at DATETIME,
+                created_by INTEGER,
+                created_by_name TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT TRUE
+            )
+        ''')
+        
+        self.conn.commit()
+
+db = Database()
+
+# ========== СИСТЕМА ССЫЛОК РОЛЕЙ ==========
+class RoleLinkSystem:
+    def __init__(self):
+        self.base_url = os.environ.get('RAILWAY_STATIC_URL', f'http://localhost:{port}')
+    
+    def create_role_link(self, server_id: int, role_id: int, role_name: str, created_by: int, created_by_name: str,
+                        uses_limit: int = 0, expires_hours: int = 0) -> str:
+        link_code = secrets.token_urlsafe(8)
+        
+        expires_at = None
+        if expires_hours > 0:
+            expires_at = datetime.now() + timedelta(hours=expires_hours)
+        
+        cursor = db.conn.cursor()
+        cursor.execute('''
+            INSERT INTO role_links 
+            (server_id, role_id, role_name, link_code, uses_limit, expires_at, created_by, created_by_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (server_id, role_id, role_name, link_code, uses_limit, expires_at, created_by, created_by_name))
+        db.conn.commit()
+        
+        return link_code
+    
+    def use_role_link(self, link_code: str, server_id: int) -> Dict:
+        cursor = db.conn.cursor()
+        cursor.execute('''
+            SELECT * FROM role_links 
+            WHERE link_code = ? AND server_id = ? AND is_active = TRUE
+        ''', (link_code, server_id))
+        link = cursor.fetchone()
+        
+        if not link:
+            return {"success": False, "error": "Ссылка не найдена"}
+        
+        # Проверяем лимит использований
+        if link[5] > 0 and link[6] >= link[5]:
+            return {"success": False, "error": "Лимит использований исчерпан"}
+        
+        # Проверяем срок действия
+        if link[7] and datetime.now() > datetime.fromisoformat(link[7]):
+            return {"success": False, "error": "Срок действия ссылки истек"}
+        
+        # Обновляем счетчик использований
+        cursor.execute('''
+            UPDATE role_links SET uses_count = uses_count + 1 
+            WHERE id = ?
+        ''', (link[0],))
+        db.conn.commit()
+        
+        return {
+            "success": True, 
+            "role_id": link[2],
+            "role_name": link[3],
+            "uses_count": link[6] + 1,
+            "uses_limit": link[5]
+        }
+    
+    def get_active_links(self, server_id: int) -> List:
+        cursor = db.conn.cursor()
+        cursor.execute('''
+            SELECT link_code, role_name, uses_limit, uses_count, expires_at, created_by_name, created_at
+            FROM role_links 
+            WHERE server_id = ? AND is_active = TRUE
+            ORDER BY created_at DESC
+        ''', (server_id,))
+        return cursor.fetchall()
+
+role_link_system = RoleLinkSystem()
+
+# ========== КОМПОНЕНТЫ ИНТЕРФЕЙСА ==========
+
+class CopyLinkModal(Modal):
+    def __init__(self, link_url):
+        super().__init__(title="📋 Копирование команды")
+        self.link_url = link_url
+        
+        self.link_field = TextInput(
+            label="Команда для копирования",
+            default=link_url,
+            style=discord.TextStyle.paragraph,
+            placeholder="Скопируйте команду ниже"
+        )
+        self.add_item(self.link_field)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.send_message("✅ Команда скопирована! Теперь вы можете вставить её в чат.", ephemeral=True)
+
+class CustomLinkModal(Modal):
+    def __init__(self, role):
+        super().__init__(title="🎛️ Кастомные настройки")
+        self.role = role
+        
+        self.uses = TextInput(
+            label="Лимит использований",
+            placeholder="0 = без ограничений",
+            default="0",
+            max_length=4,
+            required=True
+        )
+        
+        self.hours = TextInput(
+            label="Срок действия (часы)",
+            placeholder="0 = бессрочно", 
+            default="24",
+            max_length=4,
+            required=True
+        )
+        
+        self.add_item(self.uses)
+        self.add_item(self.hours)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            uses = int(self.uses.value)
+            hours = int(self.hours.value)
+            
+            if uses < 0 or hours < 0:
+                await interaction.response.send_message("❌ Числа должны быть положительными", ephemeral=True)
+                return
+            
+            link_code = role_link_system.create_role_link(
+                server_id=interaction.guild.id,
+                role_id=self.role.id,
+                role_name=self.role.name,
+                created_by=interaction.user.id,
+                created_by_name=str(interaction.user),
+                uses_limit=uses,
+                expires_hours=hours
+            )
+            
+            embed = discord.Embed(
+                title="🔗 Команда создана!",
+                description=f"Роль: {self.role.mention}",
+                color=0x00ff00
+            )
+            
+            limits = []
+            if uses > 0:
+                limits.append(f"🔄 {uses} использований")
+            if hours > 0:
+                limits.append(f"⏰ {hours} часов")
+            if not limits:
+                limits.append("✅ Без ограничений")
+            
+            embed.add_field(name="Ограничения", value=" | ".join(limits), inline=True)
+            embed.add_field(name="Команда", value=f"```!роль {link_code}```", inline=False)
+            embed.add_field(name="Инструкция", value="Отправьте команду в чат чтобы получить роль", inline=False)
+            
+            view = LinkActionsView(link_code, self.role.name)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            
+        except ValueError:
+            await interaction.response.send_message("❌ Введите корректные числа", ephemeral=True)
+
+class LinkActionsView(View):
+    def __init__(self, link_code, role_name):
+        super().__init__(timeout=300)
+        self.link_code = link_code
+        self.role_name = role_name
+    
+    @discord.ui.button(label="📋 СКОПИРОВАТЬ", style=discord.ButtonStyle.success, emoji="📋", row=0)
+    async def copy_command(self, interaction: discord.Interaction, button: Button):
+        modal = CopyLinkModal(f"!роль {self.link_code}")
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="📤 ПОДЕЛИТЬСЯ", style=discord.ButtonStyle.primary, emoji="📤", row=0)
+    async def share_link(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title=f"🔗 Получить роль: {self.role_name}",
+            description="Используйте команду ниже чтобы получить роль:",
+            color=0x5865F2
+        )
+        embed.add_field(name="Команда", value=f"```!роль {self.link_code}```", inline=False)
+        embed.set_footer(text="Сообщение автоматически удалится через 1 минуту")
+        
+        # Отправляем в общий чат и удаляем через минуту
+        message = await interaction.channel.send(embed=embed)
+        await interaction.response.send_message("✅ Сообщение отправлено в чат!", ephemeral=True)
+        
+        # Удаляем через 1 минуту
+        await asyncio.sleep(60)
+        try:
+            await message.delete()
+        except:
+            pass
+    
+    @discord.ui.button(label="🎯 БЫСТРАЯ ОТПРАВКА", style=discord.ButtonStyle.secondary, emoji="🎯", row=1)
+    async def quick_send(self, interaction: discord.Interaction, button: Button):
+        # Отправляем команду прямо в чат
+        message = await interaction.channel.send(f"**Получить роль '{self.role_name}':**\n```!роль {self.link_code}```")
+        await interaction.response.send_message("✅ Команда отправлена в чат!", ephemeral=True)
+        
+        # Удаляем через 30 секунд
+        await asyncio.sleep(30)
+        try:
+            await message.delete()
+        except:
+            pass
+
+class ActiveLinksView(View):
+    def __init__(self, links, page=0):
+        super().__init__(timeout=180)
+        self.links = links
+        self.page = page
+        self.links_per_page = 5
+        
+    @discord.ui.button(label="⬅️", style=discord.ButtonStyle.secondary, custom_id="prev_btn")
+    async def previous_page(self, interaction: discord.Interaction, button: Button):
+        if self.page > 0:
+            await self.show_page(interaction, self.page - 1)
+    
+    @discord.ui.button(label="➡️", style=discord.ButtonStyle.secondary, custom_id="next_btn")
+    async def next_page(self, interaction: discord.Interaction, button: Button):
+        if (self.page + 1) * self.links_per_page < len(self.links):
+            await self.show_page(interaction, self.page + 1)
+    
+    @discord.ui.button(label="🔄", style=discord.ButtonStyle.primary, custom_id="refresh_btn")
+    async def refresh(self, interaction: discord.Interaction, button: Button):
+        await self.show_page(interaction, self.page)
+    
+    async def show_page(self, interaction: discord.Interaction, page: int):
+        start_idx = page * self.links_per_page
+        end_idx = start_idx + self.links_per_page
+        page_links = self.links[start_idx:end_idx]
+        
+        embed = discord.Embed(
+            title=f"🔗 Активные команды (Страница {page + 1})",
+            description=f"Всего активных команд: {len(self.links)}",
+            color=0x3498db
+        )
+        
+        for link_code, role_name, uses_limit, uses_count, expires_at, created_by, created_at in page_links:
+            status = "✅ Активна"
+            if uses_limit > 0:
+                status = f"🔄 {uses_count}/{uses_limit}"
+            if expires_at and datetime.now() > datetime.fromisoformat(expires_at):
+                status = "❌ Истекла"
+            
+            expires_text = "Бессрочно"
+            if expires_at:
+                expires_dt = datetime.fromisoformat(expires_at)
+                expires_text = expires_dt.strftime("%d.%m %H:%M")
+            
+            created_dt = datetime.fromisoformat(created_at)
+            created_text = created_dt.strftime("%d.%m %H:%M")
+            
+            embed.add_field(
+                name=f"🎯 {role_name}",
+                value=(
+                    f"**Код:** `{link_code}`\n"
+                    f"**Статус:** {status}\n"
+                    f"**Создал:** **{created_by}**\n"
+                    f"**Создано:** {created_text}\n"
+                    f"**Истекает:** {expires_text}"
+                ),
+                inline=False
+            )
+        
+        if not page_links:
+            embed.description = "❌ На этой странице нет команд"
+        
+        view = ActiveLinksView(self.links, page)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+class RoleSelectView(View):
+    def __init__(self, roles, action_type):
+        super().__init__(timeout=180)
+        self.roles = roles
+        self.action_type = action_type
+        
+        self.select = Select(
+            placeholder="🎯 Выберите роль...",
+            options=[
+                discord.SelectOption(
+                    label=role.name[:25],
+                    value=str(role.id),
+                    description=f"ID: {role.id}"[:50]
+                ) for role in roles[:25]
+            ]
+        )
+        self.select.callback = self.role_selected
+        self.add_item(self.select)
+    
+    async def role_selected(self, interaction: discord.Interaction):
+        role_id = int(self.select.values[0])
+        role = interaction.guild.get_role(role_id)
+        
+        if self.action_type == "quick":
+            link_code = role_link_system.create_role_link(
+                server_id=interaction.guild.id,
+                role_id=role.id,
+                role_name=role.name,
+                created_by=interaction.user.id,
+                created_by_name=str(interaction.user),
+                uses_limit=0,
+                expires_hours=24
+            )
+            
+            embed = discord.Embed(
+                title="⚡ Команда создана",
+                description=f"Роль: {role.mention}",
+                color=0x00ff00
+            )
+            embed.add_field(name="Команда", value=f"```!роль {link_code}```", inline=False)
+            embed.add_field(name="Статус", value="✅ 24 часа без ограничений", inline=True)
+            
+            view = LinkActionsView(link_code, role.name)
+            await interaction.response.edit_message(embed=embed, view=view)
+            
+        else:
+            embed = discord.Embed(
+                title="⚙️ Настройки команды",
+                description=f"Роль: {role.mention}",
+                color=0x3498db
+            )
+            
+            view = LinkSettingsView(role, interaction.user.id, str(interaction.user))
+            await interaction.response.edit_message(embed=embed, view=view)
+
+class LinkSettingsView(View):
+    def __init__(self, role, creator_id, creator_name):
+        super().__init__(timeout=180)
+        self.role = role
+        self.creator_id = creator_id
+        self.creator_name = creator_name
+    
+    @discord.ui.button(label="🚀 БЕЗ ОГРАНИЧЕНИЙ", style=discord.ButtonStyle.success, emoji="🚀", row=0)
+    async def unlimited_button(self, interaction: discord.Interaction, button: Button):
+        await self.create_link(interaction, 0, 0)
+    
+    @discord.ui.button(label="🎯 10 ИСПОЛЬЗОВАНИЙ", style=discord.ButtonStyle.primary, emoji="🎯", row=0)
+    async def ten_uses_button(self, interaction: discord.Interaction, button: Button):
+        await self.create_link(interaction, 10, 24)
+    
+    @discord.ui.button(label="⏰ 24 ЧАСА", style=discord.ButtonStyle.primary, emoji="⏰", row=1)
+    async def one_day_button(self, interaction: discord.Interaction, button: Button):
+        await self.create_link(interaction, 0, 24)
+    
+    @discord.ui.button(label="⚙️ КАСТОМНЫЕ НАСТРОЙКИ", style=discord.ButtonStyle.secondary, emoji="⚙️", row=1)
+    async def custom_button(self, interaction: discord.Interaction, button: Button):
+        modal = CustomLinkModal(self.role)
+        await interaction.response.send_modal(modal)
+    
+    async def create_link(self, interaction: discord.Interaction, uses: int, hours: int):
+        link_code = role_link_system.create_role_link(
+            server_id=interaction.guild.id,
+            role_id=self.role.id,
+            role_name=self.role.name,
+            created_by=self.creator_id,
+            created_by_name=self.creator_name,
+            uses_limit=uses,
+            expires_hours=hours
+        )
+        
+        embed = discord.Embed(
+            title="🔗 Команда создана!",
+            description=f"Роль: {self.role.mention}",
+            color=0x00ff00
+        )
+        
+        limits = []
+        if uses > 0:
+            limits.append(f"🔄 {uses} использований")
+        if hours > 0:
+            limits.append(f"⏰ {hours} часов")
+        if not limits:
+            limits.append("✅ Без ограничений")
+        
+        embed.add_field(name="Ограничения", value=" | ".join(limits), inline=True)
+        embed.add_field(name="Команда", value=f"```!роль {link_code}```", inline=False)
+        embed.add_field(name="Инструкция", value="Отправьте команду в чат чтобы получить роль", inline=False)
+        
+        view = LinkActionsView(link_code, self.role.name)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+class QuickRoleView(View):
+    def __init__(self, roles, user_id, user_name):
+        super().__init__(timeout=180)
+        self.roles = roles
+        self.user_id = user_id
+        self.user_name = user_name
+        
+        for role in roles:
+            button = Button(
+                label=role.name[:15],
+                style=discord.ButtonStyle.primary,
+                custom_id=f"quick_role_{role.id}"  # ✅ Добавляем кастомный ID
+            )
+            button.callback = self.create_quick_link_callback(role)
+            self.add_item(button)
+    
+    def create_quick_link_callback(self, role):
+        async def callback(interaction: discord.Interaction):
+            try:
+                await interaction.response.defer(ephemeral=True)  # ✅ Откладываем ответ
+                
+                link_code = role_link_system.create_role_link(
+                    server_id=interaction.guild.id,
+                    role_id=role.id,
+                    role_name=role.name,
+                    created_by=self.user_id,
+                    created_by_name=self.user_name,
+                    uses_limit=0,
+                    expires_hours=24
+                )
+                
+                embed = discord.Embed(
+                    title="⚡ Команда создана!",
+                    description=f"Роль: {role.mention}",
+                    color=0x00ff00
+                )
+                embed.add_field(name="Команда", value=f"```!роль {link_code}```", inline=False)
+                embed.add_field(name="Действует", value="24 часа", inline=True)
+                embed.add_field(name="Лимит", value="Без ограничений", inline=True)
+                
+                view = LinkActionsView(link_code, role.name)
+                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                
+            except Exception as e:
+                print(f"Ошибка в quick role callback: {e}")
+                await interaction.followup.send("❌ Ошибка при создании команды", ephemeral=True)
+        
+        return callback
+
+# ========== ИСПРАВЛЕННЫЕ КНОПКИ ==========
+
+class PermanentRoleView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="🎮 СОЗДАТЬ КОМАНДУ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="perm_create_link", row=0)
+    async def create_link_button(self, interaction: discord.Interaction, button: Button):
+        try:
+            await interaction.response.defer(ephemeral=True)  # ✅ Важно: отложить ответ
+            
+            roles = [role for role in interaction.guild.roles if role.name != "@everyone" and not role.managed]
+            
+            if not roles:
+                await interaction.followup.send("❌ На сервере нет доступных ролей", ephemeral=True)
+                return
+            
+            embed = discord.Embed(
+                title="🎯 Выберите роль для команды",
+                description="Выберите роль из списка ниже:",
+                color=0x3498db
+            )
+            
+            view = RoleSelectView(roles, "create")
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            print(f"Ошибка в create_link_button: {e}")
+            await interaction.followup.send("❌ Произошла ошибка при создании команды", ephemeral=True)
+    
+    @discord.ui.button(label="📊 АКТИВНЫЕ КОМАНДЫ", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="perm_active_links", row=0)
+    async def active_links_button(self, interaction: discord.Interaction, button: Button):
+        try:
+            await interaction.response.defer(ephemeral=True)
+            
+            links = role_link_system.get_active_links(interaction.guild.id)
+            
+            if not links:
+                await interaction.followup.send("❌ Нет активных команд", ephemeral=True)
+                return
+            
+            embed = discord.Embed(
+                title="🔗 Активные команды",
+                description=f"Всего активных команд: {len(links)}",
+                color=0x3498db
+            )
+            
+            # Показываем первые 5 команд с информацией о создателе
+            for link_code, role_name, uses_limit, uses_count, expires_at, created_by, created_at in links[:5]:
+                status = "✅ Активна"
+                if uses_limit > 0:
+                    status = f"🔄 {uses_count}/{uses_limit}"
+                if expires_at and datetime.now() > datetime.fromisoformat(expires_at):
+                    status = "❌ Истекла"
+                
+                expires_text = "Бессрочно"
+                if expires_at:
+                    expires_dt = datetime.fromisoformat(expires_at)
+                    expires_text = expires_dt.strftime("%d.%m %H:%M")
+                
+                created_dt = datetime.fromisoformat(created_at)
+                created_text = created_dt.strftime("%d.%m %H:%M")
+                
+                embed.add_field(
+                    name=f"🎯 {role_name}",
+                    value=(
+                        f"**Код:** `{link_code}`\n"
+                        f"**Статус:** {status}\n"
+                        f"**Создал:** **{created_by}**\n"
+                        f"**Создано:** {created_text}\n"
+                        f"**Истекает:** {expires_text}"
+                    ),
+                    inline=False
+                )
+            
+            if len(links) > 5:
+                embed.set_footer(text=f"И еще {len(links) - 5} команд... Используйте кнопки для навигации")
+            
+            view = ActiveLinksView(links)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            print(f"Ошибка в active_links_button: {e}")
+            await interaction.followup.send("❌ Произошла ошибка при загрузке команд", ephemeral=True)
+    
+    @discord.ui.button(label="⚡ БЫСТРАЯ КОМАНДА", style=discord.ButtonStyle.success, emoji="⚡", custom_id="perm_quick_link", row=1)
+    async def quick_link_button(self, interaction: discord.Interaction, button: Button):
+        try:
+            await interaction.response.defer(ephemeral=True)
+            
+            roles = [role for role in interaction.guild.roles if role.name != "@everyone" and not role.managed]
+            
+            if not roles:
+                await interaction.followup.send("❌ На сервере нет доступных ролей", ephemeral=True)
+                return
+            
+            embed = discord.Embed(
+                title="⚡ Быстрая выдача ролей",
+                description="Выберите роль для создания команды:",
+                color=0x00ff00
+            )
+            
+            popular_roles = roles[:5]
+            view = QuickRoleView(popular_roles, interaction.user.id, str(interaction.user))
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            print(f"Ошибка в quick_link_button: {e}")
+            await interaction.followup.send("❌ Произошла ошибка при создании быстрой команды", ephemeral=True)
+    
+    @discord.ui.button(label="❓ ПОМОЩЬ", style=discord.ButtonStyle.danger, emoji="❓", custom_id="perm_help", row=1)
+    async def help_button(self, interaction: discord.Interaction, button: Button):
+        try:
+            embed = discord.Embed(
+                title="📋 Помощь по командам",
+                description="Как использовать систему ролей:",
+                color=0x5865F2
+            )
+            
+            embed.add_field(
+                name="🎮 Создать команду",
+                value="Создает команду для выдачи роли с настройками",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📊 Активные команды", 
+                value="Показывает все активные команды и их статус",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="⚡ Быстрая команда",
+                value="Создает команду на 24 часа без ограничений",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="🎯 Использование",
+                value="Отправьте `!роль КОД` в чат чтобы получить роль",
+                inline=False
+            )
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as e:
+            print(f"Ошибка в help_button: {e}")
+            await interaction.response.send_message("❌ Произошла ошибка", ephemeral=True)
+
+class MainPanelView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="🎮 УПРАВЛЕНИЕ РОЛЯМИ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="main_roles", row=0)
+    async def roles_button(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title="🎮 Управление ролями",
+            description="Выберите действие:",
+            color=0x5865F2
+        )
+        
+        embed.add_field(
+            name="🎮 СОЗДАТЬ КОМАНДУ",
+            value="Создать команду для выдачи роли с настройками",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📊 АКТИВНЫЕ КОМАНДЫ", 
+            value="Просмотр всех активных команд и их статуса",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⚡ БЫСТРАЯ КОМАНДА",
+            value="Создать команду на 24 часа без ограничений",
+            inline=False
+        )
+        
+        view = PermanentRoleView()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    
+    @discord.ui.button(label="👥 УПРАВЛЕНИЕ УЧАСТНИКАМИ", style=discord.ButtonStyle.secondary, emoji="👥", custom_id="main_members", row=0)
+    async def members_button(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title="👥 Управление участниками",
+            description="Функции управления участниками:",
+            color=0x3498db
+        )
+        
+        embed.add_field(
+            name="📊 Статистика",
+            value="Просмотр статистики сервера",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🎭 Массовая выдача ролей",
+            value="Выдача ролей нескольким участникам",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🔄 В разработке",
+            value="Дополнительные функции скоро будут добавлены",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="⚙️ НАСТРОЙКИ СИСТЕМЫ", style=discord.ButtonStyle.success, emoji="⚙️", custom_id="main_settings", row=1)
+    async def settings_button(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title="⚙️ Настройки системы",
+            description="Настройки бота и сервера:",
+            color=0x00ff00
+        )
+        
+        embed.add_field(
+            name="🔧 Конфигурация",
+            value="Настройки системы ролей",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🛡️ Безопасность",
+            value="Настройки прав доступа",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📈 Логирование",
+            value="Настройки журналирования",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🔄 В разработке",
+            value="Настройки будут доступны в следующем обновлении",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="ℹ️ О СИСТЕМЕ", style=discord.ButtonStyle.danger, emoji="ℹ️", custom_id="main_about", row=1)
+    async def about_button(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title="ℹ️ О системе Multi Bot",
+            description="Многофункциональный бот для управления сервером",
+            color=0x5865F2
+        )
+        
+        embed.add_field(
+            name="🚀 Возможности",
+            value="• Управление ролями\n• Система команд\n• Веб-панель\n• Модерация",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📊 Статистика",
+            value=f"• Серверов: {len(bot.guilds)}\n• Задержка: {round(bot.latency * 1000)}мс",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🔧 Технологии",
+            value="• Python 3.11\n• Discord.py\n• SQLite3\n• Flask",
+            inline=False
+        )
+        
+        embed.set_footer(text="Multi Bot System v2.0 | Разработано с ❤️")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 # ========== DISCORD BOT ==========
 TOKEN = os.getenv('DISCORD_TOKEN')
 
@@ -24,586 +777,43 @@ intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Конфигурация Flask для Railway
-app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
-port = int(os.environ.get("PORT", 8080))
-
-@app.route('/')
-def home():
-    return "🟢 Multi Bot System Online"
-
-def run_flask():
-    app.run(host='0.0.0.0', port=port, debug=False)
-
-def keep_alive():
-    t = Thread(target=run_flask)
-    t.daemon = True
-    t.start()
-
-# ========== БАЗА ДАННЫХ ДЛЯ СКЛАДА ==========
-class Database:
-    def __init__(self):
-        self.conn = sqlite3.connect('bot_data.db', check_same_thread=False)
-        self.create_tables()
-    
-    def create_tables(self):
-        cursor = self.conn.cursor()
-        
-        # Таблица для учета склада
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS warehouse (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                server_id INTEGER,
-                item_name TEXT NOT NULL,
-                category TEXT,
-                quantity INTEGER DEFAULT 0,
-                unit TEXT DEFAULT 'шт.',
-                min_stock INTEGER DEFAULT 0,
-                location TEXT,
-                notes TEXT,
-                created_by INTEGER,
-                created_by_name TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        # Таблица истории движений
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS stock_movements (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                server_id INTEGER,
-                item_id INTEGER,
-                item_name TEXT,
-                change_type TEXT, -- 'incoming', 'outgoing', 'adjustment'
-                quantity_change INTEGER,
-                previous_quantity INTEGER,
-                new_quantity INTEGER,
-                reason TEXT,
-                created_by INTEGER,
-                created_by_name TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        self.conn.commit()
-
-db = Database()
-
-# ========== СИСТЕМА УЧЕТА СКЛАДА ==========
-class WarehouseSystem:
-    def __init__(self):
-        pass
-    
-    def add_item(self, server_id: int, item_name: str, category: str, quantity: int, 
-                 unit: str, min_stock: int, location: str, notes: str, 
-                 created_by: int, created_by_name: str) -> int:
-        cursor = db.conn.cursor()
-        cursor.execute('''
-            INSERT INTO warehouse 
-            (server_id, item_name, category, quantity, unit, min_stock, location, notes, created_by, created_by_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (server_id, item_name, category, quantity, unit, min_stock, location, notes, created_by, created_by_name))
-        
-        item_id = cursor.lastrowid
-        
-        # Записываем в историю
-        cursor.execute('''
-            INSERT INTO stock_movements 
-            (server_id, item_id, item_name, change_type, quantity_change, previous_quantity, new_quantity, reason, created_by, created_by_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (server_id, item_id, item_name, 'incoming', quantity, 0, quantity, 'Первое поступление', created_by, created_by_name))
-        
-        db.conn.commit()
-        return item_id
-    
-    def update_quantity(self, server_id: int, item_id: int, new_quantity: int, 
-                       change_type: str, reason: str, created_by: int, created_by_name: str) -> bool:
-        cursor = db.conn.cursor()
-        
-        # Получаем текущее количество
-        cursor.execute('SELECT quantity FROM warehouse WHERE id = ? AND server_id = ?', (item_id, server_id))
-        result = cursor.fetchone()
-        
-        if not result:
-            return False
-        
-        previous_quantity = result[0]
-        quantity_change = new_quantity - previous_quantity
-        
-        # Обновляем количество
-        cursor.execute('''
-            UPDATE warehouse SET quantity = ?, updated_at = CURRENT_TIMESTAMP 
-            WHERE id = ? AND server_id = ?
-        ''', (new_quantity, item_id, server_id))
-        
-        # Получаем название товара
-        cursor.execute('SELECT item_name FROM warehouse WHERE id = ?', (item_id,))
-        item_name = cursor.fetchone()[0]
-        
-        # Записываем в историю
-        cursor.execute('''
-            INSERT INTO stock_movements 
-            (server_id, item_id, item_name, change_type, quantity_change, previous_quantity, new_quantity, reason, created_by, created_by_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (server_id, item_id, item_name, change_type, quantity_change, previous_quantity, new_quantity, reason, created_by, created_by_name))
-        
-        db.conn.commit()
-        return True
-    
-    def delete_item(self, server_id: int, item_id: int) -> bool:
-        cursor = db.conn.cursor()
-        cursor.execute('DELETE FROM warehouse WHERE id = ? AND server_id = ?', (item_id, server_id))
-        db.conn.commit()
-        return cursor.rowcount > 0
-    
-    def get_warehouse_items(self, server_id: int) -> List:
-        cursor = db.conn.cursor()
-        cursor.execute('''
-            SELECT id, item_name, category, quantity, unit, min_stock, location, notes, created_by_name, updated_at
-            FROM warehouse 
-            WHERE server_id = ?
-            ORDER BY item_name
-        ''', (server_id,))
-        return cursor.fetchall()
-    
-    def get_stock_movements(self, server_id: int, days: int = 7) -> List:
-        cursor = db.conn.cursor()
-        since_date = datetime.now() - timedelta(days=days)
-        cursor.execute('''
-            SELECT item_name, change_type, quantity_change, new_quantity, reason, created_by_name, created_at
-            FROM stock_movements 
-            WHERE server_id = ? AND created_at >= ?
-            ORDER BY created_at DESC
-            LIMIT 50
-        ''', (server_id, since_date))
-        return cursor.fetchall()
-
-warehouse_system = WarehouseSystem()
-
-# ========== МОДАЛЬНЫЕ ОКНА ДЛЯ СКЛАДА ==========
-
-class AddItemModal(Modal):
-    def __init__(self, original_message=None):
-        super().__init__(title="📦 Добавить предмет")
-        self.original_message = original_message
-        
-        self.item_name = TextInput(
-            label="Название предмета",
-            placeholder="Например: Клавиатура Logitech",
-            required=True,
-            max_length=100
-        )
-        
-        self.category = TextInput(
-            label="Категория",
-            placeholder="Например: Компьютерная техника",
-            required=True,
-            max_length=50
-        )
-        
-        self.quantity = TextInput(
-            label="Количество",
-            placeholder="Например: 10",
-            required=True,
-            max_length=10
-        )
-        
-        self.unit = TextInput(
-            label="Единица измерения",
-            placeholder="Например: шт., упак., кг",
-            default="шт.",
-            required=True,
-            max_length=10
-        )
-        
-        self.min_stock = TextInput(
-            label="Минимальный запас",
-            placeholder="0 - без контроля",
-            default="0",
-            required=True,
-            max_length=10
-        )
-        
-        self.location = TextInput(
-            label="Место хранения",
-            placeholder="Например: Стеллаж A-1",
-            required=False,
-            max_length=50
-        )
-        
-        self.notes = TextInput(
-            label="Примечания",
-            placeholder="Дополнительная информация",
-            required=False,
-            style=discord.TextStyle.paragraph,
-            max_length=500
-        )
-        
-        self.add_item(self.item_name)
-        self.add_item(self.category)
-        self.add_item(self.quantity)
-        self.add_item(self.unit)
-        self.add_item(self.min_stock)
-        self.add_item(self.location)
-        self.add_item(self.notes)
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            quantity = int(self.quantity.value)
-            min_stock = int(self.min_stock.value)
-            
-            if quantity < 0 or min_stock < 0:
-                await interaction.response.send_message("❌ Количество не может быть отрицательным", ephemeral=True)
-                return
-            
-            item_id = warehouse_system.add_item(
-                server_id=interaction.guild.id,
-                item_name=self.item_name.value,
-                category=self.category.value,
-                quantity=quantity,
-                unit=self.unit.value,
-                min_stock=min_stock,
-                location=self.location.value,
-                notes=self.notes.value,
-                created_by=interaction.user.id,
-                created_by_name=interaction.user.name
-            )
-            
-            # Отправляем подтверждение
-            await interaction.response.send_message(
-                f"✅ Предмет '{self.item_name.value}' добавлен на склад!", 
-                ephemeral=True
-            )
-            
-            # Обновляем панель склада
-            await self.update_warehouse_panel(interaction)
-            
-        except ValueError:
-            await interaction.response.send_message("❌ Введите корректные числа для количества", ephemeral=True)
-    
-    async def update_warehouse_panel(self, interaction: discord.Interaction):
-        """Обновляет панель склада"""
-        items = warehouse_system.get_warehouse_items(interaction.guild.id)
-        
-        embed = discord.Embed(
-            title="📦 Учет склада",
-            description=f"Всего предметов: {len(items)}",
-            color=0x3498db
-        )
-        
-        if not items:
-            embed.description = "📭 Склад пуст"
-        else:
-            items_text = ""
-            for item in items[:20]:
-                item_id, name, category, quantity, unit, min_stock, location, notes, created_by, updated = item
-                
-                status = "🟢"
-                if min_stock > 0 and quantity <= min_stock:
-                    status = "🟡" if quantity > 0 else "🔴"
-                
-                item_line = f"{status} **{name}** - {quantity} {unit}"
-                if location:
-                    item_line += f" | 🗂️ {location}"
-                
-                items_text += f"{item_line}\n"
-            
-            embed.add_field(
-                name="📋 Список предметов",
-                value=items_text,
-                inline=False
-            )
-            
-            if len(items) > 20:
-                embed.set_footer(text=f"Показано 20 из {len(items)} предметов")
-        
-        view = WarehousePanel()
-        
-        # Ищем и обновляем сообщение панели склада
-        try:
-            async for message in interaction.channel.history(limit=20):
-                if message.author == interaction.client.user and len(message.embeds) > 0:
-                    if message.embeds[0].title and "📦 Учет склада" in message.embeds[0].title:
-                        await message.edit(embed=embed, view=view)
-                        break
-        except Exception as e:
-            print(f"Ошибка при обновлении панели: {e}")
-
-# ========== ОТДЕЛЬНАЯ ПАНЕЛЬ СКЛАДА ==========
-
-class WarehousePanel(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-    
-    @discord.ui.button(label="ДОБАВИТЬ", style=discord.ButtonStyle.success, emoji="📦", row=0)
-    async def add_item(self, interaction: discord.Interaction, button: Button):
-        # Передаем текущее сообщение в модальное окно
-        modal = AddItemModal(original_message=interaction.message)
-        await interaction.response.send_modal(modal)
-    
-    @discord.ui.button(label="ПРЕДМЕТЫ", style=discord.ButtonStyle.primary, emoji="📋", row=0)
-    async def show_items(self, interaction: discord.Interaction, button: Button):
-        await self.show_warehouse(interaction)
-    
-    @discord.ui.button(label="ИСТОРИЯ", style=discord.ButtonStyle.secondary, emoji="📊", row=0)
-    async def history(self, interaction: discord.Interaction, button: Button):
-        await self.show_history(interaction)
-    
-    @discord.ui.button(label="ГЛАВНАЯ", style=discord.ButtonStyle.secondary, emoji="🏠", row=1)
-    async def main_menu(self, interaction: discord.Interaction, button: Button):
-        embed = discord.Embed(
-            title="🏠 Главное меню",
-            description="Выберите панель для управления:",
-            color=0x5865F2
-        )
-        
-        view = MainMenuView()
-        await interaction.response.edit_message(embed=embed, view=view)
-    
-    async def show_warehouse(self, interaction: discord.Interaction):
-        items = warehouse_system.get_warehouse_items(interaction.guild.id)
-        
-        embed = discord.Embed(
-            title="📦 Учет склада",
-            description=f"Всего предметов: {len(items)}",
-            color=0x3498db
-        )
-        
-        if not items:
-            embed.description = "📭 Склад пуст"
-            view = WarehousePanel()
-            await interaction.response.edit_message(embed=embed, view=view)
-            return
-        
-        # Показываем все предметы в виде таблицы
-        items_text = ""
-        for item in items[:20]:  # Ограничиваем количество предметов
-            item_id, name, category, quantity, unit, min_stock, location, notes, created_by, updated = item
-            
-            status = "🟢"
-            if min_stock > 0 and quantity <= min_stock:
-                status = "🟡" if quantity > 0 else "🔴"
-            
-            item_line = f"{status} **{name}** - {quantity} {unit}"
-            if location:
-                item_line += f" | 🗂️ {location}"
-            
-            items_text += f"{item_line}\n"
-        
-        embed.add_field(
-            name="📋 Список предметов",
-            value=items_text,
-            inline=False
-        )
-        
-        if len(items) > 20:
-            embed.set_footer(text=f"Показано 20 из {len(items)} предметов")
-        
-        view = WarehousePanel()
-        await interaction.response.edit_message(embed=embed, view=view)
-    
-    async def show_history(self, interaction: discord.Interaction):
-        movements = warehouse_system.get_stock_movements(interaction.guild.id, 7)
-        
-        embed = discord.Embed(
-            title="📊 История движений (7 дней)",
-            color=0x9b59b6
-        )
-        
-        if not movements:
-            embed.description = "📭 Нет движений за последние 7 дней"
-            view = WarehousePanel()
-            await interaction.response.edit_message(embed=embed, view=view)
-            return
-        
-        for movement in movements[:10]:  # Ограничиваем количество записей
-            item_name, change_type, quantity_change, new_quantity, reason, created_by, created_at = movement
-            
-            if change_type == 'incoming':
-                emoji = "📥"
-                change_text = f"+{quantity_change}"
-            elif change_type == 'outgoing':
-                emoji = "📤"
-                change_text = f"-{quantity_change}"
-            else:
-                emoji = "📊"
-                change_text = f"→ {new_quantity}"
-            
-            created_dt = datetime.fromisoformat(created_at)
-            time_text = created_dt.strftime("%d.%m %H:%M")
-            
-            embed.add_field(
-                name=f"{emoji} {item_name}",
-                value=f"**Изменение:** {change_text}\n**Причина:** {reason}\n**Кто:** {created_by}\n**Когда:** {time_text}",
-                inline=False
-            )
-        
-        view = WarehousePanel()
-        await interaction.response.edit_message(embed=embed, view=view)
-
-# ========== ОТДЕЛЬНАЯ ПАНЕЛЬ РОЛЕЙ ==========
-
-class RolesPanel(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-    
-    @discord.ui.button(label="СОЗДАТЬ КОМАНДУ", style=discord.ButtonStyle.primary, emoji="🎮", row=0)
-    async def create_command(self, interaction: discord.Interaction, button: Button):
-        embed = discord.Embed(
-            title="🎮 Создание команды",
-            description="Функция в разработке...",
-            color=0x5865F2
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    
-    @discord.ui.button(label="АКТИВНЫЕ КОМАНДЫ", style=discord.ButtonStyle.secondary, emoji="📊", row=0)
-    async def active_commands(self, interaction: discord.Interaction, button: Button):
-        embed = discord.Embed(
-            title="📊 Активные команды",
-            description="Функция в разработке...",
-            color=0x3498db
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    
-    @discord.ui.button(label="БЫСТРАЯ КОМАНДА", style=discord.ButtonStyle.success, emoji="⚡", row=1)
-    async def quick_command(self, interaction: discord.Interaction, button: Button):
-        embed = discord.Embed(
-            title="⚡ Быстрая команда",
-            description="Функция в разработке...",
-            color=0x00ff00
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    
-    @discord.ui.button(label="ГЛАВНАЯ", style=discord.ButtonStyle.secondary, emoji="🏠", row=1)
-    async def main_menu(self, interaction: discord.Interaction, button: Button):
-        embed = discord.Embed(
-            title="🏠 Главное меню",
-            description="Выберите панель для управления:",
-            color=0x5865F2
-        )
-        
-        view = MainMenuView()
-        await interaction.response.edit_message(embed=embed, view=view)
-
-# ========== ГЛАВНОЕ МЕНЮ ==========
-
-class MainMenuView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-    
-    @discord.ui.button(label="УПРАВЛЕНИЕ РОЛЯМИ", style=discord.ButtonStyle.primary, emoji="🎮", row=0)
-    async def roles_panel(self, interaction: discord.Interaction, button: Button):
-        embed = discord.Embed(
-            title="🎮 Управление ролями",
-            description="Выберите действие:",
-            color=0x5865F2
-        )
-        
-        view = RolesPanel()
-        await interaction.response.edit_message(embed=embed, view=view)
-    
-    @discord.ui.button(label="УЧЕТ СКЛАДА", style=discord.ButtonStyle.success, emoji="📦", row=0)
-    async def warehouse_panel(self, interaction: discord.Interaction, button: Button):
-        items = warehouse_system.get_warehouse_items(interaction.guild.id)
-        
-        embed = discord.Embed(
-            title="📦 Учет склада",
-            description=f"Всего предметов: {len(items)}",
-            color=0x3498db
-        )
-        
-        if not items:
-            embed.description = "📭 Склад пуст"
-        else:
-            items_text = ""
-            for item in items[:20]:
-                item_id, name, category, quantity, unit, min_stock, location, notes, created_by, updated = item
-                
-                status = "🟢"
-                if min_stock > 0 and quantity <= min_stock:
-                    status = "🟡" if quantity > 0 else "🔴"
-                
-                item_line = f"{status} **{name}** - {quantity} {unit}"
-                if location:
-                    item_line += f" | 🗂️ {location}"
-                
-                items_text += f"{item_line}\n"
-            
-            embed.add_field(
-                name="📋 Список предметов",
-                value=items_text,
-                inline=False
-            )
-            
-            if len(items) > 20:
-                embed.set_footer(text=f"Показано 20 из {len(items)} предметов")
-        
-        view = WarehousePanel()
-        await interaction.response.edit_message(embed=embed, view=view)
-    
-    @discord.ui.button(label="НАСТРОЙКИ", style=discord.ButtonStyle.secondary, emoji="⚙️", row=1)
-    async def settings_panel(self, interaction: discord.Interaction, button: Button):
-        embed = discord.Embed(
-            title="⚙️ Настройки",
-            description="Раздел в разработке...",
-            color=0x95a5a6
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    
-    @discord.ui.button(label="ПОМОЩЬ", style=discord.ButtonStyle.danger, emoji="❓", row=1)
-    async def help_panel(self, interaction: discord.Interaction, button: Button):
-        embed = discord.Embed(
-            title="❓ Помощь",
-            description="**Доступные команды:**\n\n`!панель` - Создать главную панель\n`!склад` - Создать панель склада\n`!роли` - Создать панель ролей",
-            color=0xe74c3c
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-# ========== КОМАНДЫ БОТА ==========
-
 @bot.event
 async def on_ready():
     print(f'🎉 Бот {bot.user} запущен!')
     print(f'📊 Подключен к {len(bot.guilds)} серверам')
     
     # Регистрируем постоянные кнопки
-    bot.add_view(MainMenuView())
-    bot.add_view(RolesPanel())
-    bot.add_view(WarehousePanel())
+    bot.add_view(PermanentRoleView())
+    bot.add_view(MainPanelView())
     
-    # Устанавливаем статус
-    try:
-        activity = discord.Activity(type=discord.ActivityType.watching, name="за сервером 👁️")
-        await bot.change_presence(activity=activity, status=discord.Status.online)
-        print("✅ Статус бота установлен: 'Смотрящий за сервером 👁️'")
-    except Exception as e:
-        print(f"⚠️ Не удалось установить статус: {e}")
+    # Устанавливаем статус "Смотрящий за сервером"
+    activity = discord.Activity(type=discord.ActivityType.watching, name="Смотрящий за сервером 👁️")
+    await bot.change_presence(activity=activity)
+
+# ========== КОМАНДЫ ДЛЯ СОЗДАНИЯ ПАНЕЛЕЙ ==========
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def панель(ctx):
-    """Создать главную панель управления"""
+async def создать_панель(ctx):
+    """Создать закрепленную панель управления"""
     embed = discord.Embed(
-        title="🏠 Главное меню",
-        description="Выберите панель для управления:",
+        title="🎮 Управление ролями",
+        description="Используйте кнопки ниже для управления ролями",
         color=0x5865F2
     )
-    
     embed.add_field(
-        name="🎮 УПРАВЛЕНИЕ РОЛЯМИ", 
-        value="Создание команд для выдачи ролей", 
+        name="🎮 СОЗДАТЬ КОМАНДУ", 
+        value="Создать команду для выдачи роли с настройками", 
         inline=True
     )
     embed.add_field(
-        name="📦 УЧЕТ СКЛАДА", 
-        value="Управление предметами и запасами", 
+        name="📊 АКТИВНЫЕ КОМАНДЫ", 
+        value="Просмотр всех активных команд", 
         inline=True
     )
     embed.add_field(
-        name="⚙️ НАСТРОЙКИ", 
-        value="Настройки системы", 
+        name="⚡ БЫСТРАЯ КОМАНДА", 
+        value="Создать команду без ограничений", 
         inline=True
     )
     embed.add_field(
@@ -612,115 +822,105 @@ async def панель(ctx):
         inline=True
     )
     
-    view = MainMenuView()
+    view = PermanentRoleView()
     message = await ctx.send(embed=embed, view=view)
     
     try:
         await message.pin()
-        await ctx.send("✅ Главная панель создана и закреплена!", delete_after=5)
+        await ctx.send("✅ Панель создана и закреплена!", delete_after=5)
     except:
-        await ctx.send("✅ Главная панель создана! (Не удалось закрепить)", delete_after=5)
+        await ctx.send("✅ Панель создана! (Не удалось закрепить)", delete_after=5)
     
     await ctx.message.delete()
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def склад(ctx):
-    """Создать панель учета склада"""
-    items = warehouse_system.get_warehouse_items(ctx.guild.id)
-    
+async def главная_панель(ctx):
+    """Создать главную панель управления"""
     embed = discord.Embed(
-        title="📦 Учет склада",
-        description=f"Всего предметов: {len(items)}",
-        color=0x3498db
-    )
-    
-    if not items:
-        embed.description = "📭 Склад пуст"
-    else:
-        items_text = ""
-        for item in items[:20]:
-            item_id, name, category, quantity, unit, min_stock, location, notes, created_by, updated = item
-            
-            status = "🟢"
-            if min_stock > 0 and quantity <= min_stock:
-                status = "🟡" if quantity > 0 else "🔴"
-            
-            item_line = f"{status} **{name}** - {quantity} {unit}"
-            if location:
-                item_line += f" | 🗂️ {location}"
-            
-            items_text += f"{item_line}\n"
-        
-        embed.add_field(
-            name="📋 Список предметов",
-            value=items_text,
-            inline=False
-        )
-        
-        if len(items) > 20:
-            embed.set_footer(text=f"Показано 20 из {len(items)} предметов")
-    
-    view = WarehousePanel()
-    message = await ctx.send(embed=embed, view=view)
-    
-    try:
-        await message.pin()
-        await ctx.send("✅ Панель склада создана и закреплена!", delete_after=5)
-    except:
-        await ctx.send("✅ Панель склада создана! (Не удалось закрепить)", delete_after=5)
-    
-    await ctx.message.delete()
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def роли(ctx):
-    """Создать панель управления ролями"""
-    embed = discord.Embed(
-        title="🎮 Управление ролями",
-        description="Создание команд для выдачи ролей:",
+        title="⚙️ Панель управления сервером",
+        description="Выберите раздел для управления:",
         color=0x5865F2
     )
     
     embed.add_field(
-        name="🎮 СОЗДАТЬ КОМАНДУ", 
-        value="Создать команду для роли", 
-        inline=True
+        name="🎮 УПРАВЛЕНИЕ РОЛЯМИ", 
+        value="Создание и управление командами для ролей", 
+        inline=False
     )
     embed.add_field(
-        name="📊 АКТИВНЫЕ КОМАНДЫ", 
-        value="Просмотр активных команд", 
-        inline=True
+        name="👥 УПРАВЛЕНИЕ УЧАСТНИКАМИ", 
+        value="Управление участниками сервера", 
+        inline=False
     )
     embed.add_field(
-        name="⚡ БЫСТРАЯ КОМАНДА", 
-        value="Быстрое создание команды", 
-        inline=True
+        name="⚙️ НАСТРОЙКИ СИСТЕМЫ", 
+        value="Настройки бота и сервера", 
+        inline=False
     )
     embed.add_field(
-        name="🏠 ГЛАВНАЯ", 
-        value="Вернуться в главное меню", 
-        inline=True
+        name="ℹ️ О СИСТЕМЕ", 
+        value="Информация о боте и его возможностях", 
+        inline=False
     )
     
-    view = RolesPanel()
+    view = MainPanelView()
     message = await ctx.send(embed=embed, view=view)
     
     try:
         await message.pin()
-        await ctx.send("✅ Панель ролей создана и закреплена!", delete_after=5)
+        await ctx.send("✅ Главная панель создана!", delete_after=5)
     except:
-        await ctx.send("✅ Панель ролей создана! (Не удалось закрепить)", delete_after=5)
+        pass
     
     await ctx.message.delete()
 
-# ========== ЗАПУСК ПРИЛОЖЕНИЯ ==========
+# ========== ИСПРАВЛЕННАЯ КОМАНДА ДЛЯ ПОЛУЧЕНИЯ РОЛИ ==========
 
-if __name__ == '__main__':
-    keep_alive()
-    print(f"🚀 Запускаю Multi Bot на порту {port}")
+@bot.command()
+async def роль(ctx, код: str = None):  # ✅ Добавляем значение по умолчанию
+    """Получить роль по коду команды"""
+    if not код:
+        await ctx.send("❌ Укажите код команды: `!роль КОД`", delete_after=10)
+        await ctx.message.delete(delay=10)
+        return
     
-    try:
-        bot.run(TOKEN)
-    except Exception as e:
-        print(f"❌ Ошибка запуска бота: {e}")
+    result = role_link_system.use_role_link(код, ctx.guild.id)
+    
+    if result["success"]:
+        role_id = result["role_id"]
+        role = ctx.guild.get_role(role_id)
+        
+        if role:
+            try:
+                if role in ctx.author.roles:
+                    await ctx.author.remove_roles(role)
+                    message = await ctx.send(f"✅ Роль {role.mention} убрана!")
+                else:
+                    await ctx.author.add_roles(role)
+                    message = await ctx.send(f"✅ Роль {role.mention} выдана!")
+                
+                await asyncio.sleep(10)
+                await ctx.message.delete()
+                await message.delete()
+                
+            except discord.Forbidden:
+                message = await ctx.send("❌ У бота нет прав для выдачи ролей")
+                await asyncio.sleep(10)
+                await ctx.message.delete()
+                await message.delete()
+        else:
+            message = await ctx.send("❌ Роль не найдена на сервере")
+            await asyncio.sleep(10)
+            await ctx.message.delete()
+            await message.delete()
+    else:
+        message = await ctx.send(f"❌ {result['error']}")
+        await asyncio.sleep(10)
+        await ctx.message.delete()
+        await message.delete()
+
+# ========== ЗАПУСК ПРИЛОЖЕНИЯ ==========
+if __name__ == "__main__":
+    keep_alive()
+    bot.run(TOKEN)
