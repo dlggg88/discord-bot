@@ -12,6 +12,18 @@ import aiohttp
 import secrets
 from typing import Dict, List, Optional
 
+# ========== DISCORD BOT ==========
+TOKEN = os.getenv('DISCORD_TOKEN')
+
+if not TOKEN:
+    raise ValueError("❌ DISCORD_TOKEN не установлен!")
+
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+
+bot = commands.Bot(command_prefix='!', intents=intents)
+
 # Конфигурация Flask для Railway
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
@@ -511,7 +523,6 @@ class WarehouseView(View):
     
     @discord.ui.button(label="НАЗАД", style=discord.ButtonStyle.secondary, emoji="🔙", row=1)
     async def back_button(self, interaction: discord.Interaction, button: Button):
-        from main_panel import MainPanelView  # Импортируем здесь чтобы избежать циклического импорта
         embed = discord.Embed(
             title="⚙️ Панель управления сервером",
             description="Выберите раздел для управления:",
@@ -709,72 +720,6 @@ class CategoriesView(View):
         category = self.select.values[0]
         await WarehouseView.show_warehouse(interaction, category)
 
-class ItemActionsView(View):
-    def __init__(self, item_id, item_name, current_quantity):
-        super().__init__(timeout=180)
-        self.item_id = item_id
-        self.item_name = item_name
-        self.current_quantity = current_quantity
-    
-    @discord.ui.button(label="ПРИХОД", style=discord.ButtonStyle.success, emoji="📥", row=0)
-    async def incoming(self, interaction: discord.Interaction, button: Button):
-        modal = IncomingModal(self.item_id, self.item_name, self.current_quantity)
-        await interaction.response.send_modal(modal)
-    
-    @discord.ui.button(label="РАСХОД", style=discord.ButtonStyle.danger, emoji="📤", row=0)
-    async def outgoing(self, interaction: discord.Interaction, button: Button):
-        modal = OutgoingModal(self.item_id, self.item_name, self.current_quantity)
-        await interaction.response.send_modal(modal)
-    
-    @discord.ui.button(label="ИЗМЕНИТЬ", style=discord.ButtonStyle.primary, emoji="📊", row=0)
-    async def update(self, interaction: discord.Interaction, button: Button):
-        modal = UpdateQuantityModal(self.item_id, self.item_name, self.current_quantity)
-        await interaction.response.send_modal(modal)
-    
-    @discord.ui.button(label="УДАЛИТЬ", style=discord.ButtonStyle.secondary, emoji="🗑️", row=1)
-    async def delete(self, interaction: discord.Interaction, button: Button):
-        # Подтверждение удаления
-        embed = discord.Embed(
-            title="🗑️ Подтверждение удаления",
-            description=f"Вы уверены, что хотите удалить товар **{self.item_name}**?",
-            color=0xe74c3c
-        )
-        
-        view = ConfirmDeleteView(self.item_id, self.item_name)
-        await interaction.response.edit_message(embed=embed, view=view)
-    
-    @discord.ui.button(label="НАЗАД", style=discord.ButtonStyle.secondary, emoji="🔙", row=1)
-    async def back_button(self, interaction: discord.Interaction, button: Button):
-        await WarehouseView.show_warehouse(interaction)
-
-class ConfirmDeleteView(View):
-    def __init__(self, item_id, item_name):
-        super().__init__(timeout=60)
-        self.item_id = item_id
-        self.item_name = item_name
-    
-    @discord.ui.button(label="ДА, УДАЛИТЬ", style=discord.ButtonStyle.danger, emoji="🗑️", row=0)
-    async def confirm_delete(self, interaction: discord.Interaction, button: Button):
-        success = warehouse_system.delete_item(interaction.guild.id, self.item_id)
-        
-        if success:
-            await interaction.response.edit_message(
-                content=f"✅ Товар '{self.item_name}' удален",
-                embed=None,
-                view=None
-            )
-            await WarehouseView.show_warehouse(interaction)
-        else:
-            await interaction.response.edit_message(
-                content="❌ Ошибка при удалении товара",
-                embed=None,
-                view=None
-            )
-    
-    @discord.ui.button(label="ОТМЕНА", style=discord.ButtonStyle.secondary, emoji="↩️", row=0)
-    async def cancel_delete(self, interaction: discord.Interaction, button: Button):
-        await WarehouseView.show_warehouse(interaction)
-
 # ========== ОБНОВЛЕННАЯ ГЛАВНАЯ ПАНЕЛЬ ==========
 
 class MainPanelView(View):
@@ -783,11 +728,28 @@ class MainPanelView(View):
     
     @discord.ui.button(label="УПРАВЛЕНИЕ РОЛЯМИ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="main_roles", row=0)
     async def roles_button(self, interaction: discord.Interaction, button: Button):
-        from role_system import MainRoleView  # Импортируем здесь чтобы избежать циклического импорта
         embed = discord.Embed(
             title="🎮 Управление ролями",
             description="Выберите действие:",
             color=0x5865F2
+        )
+        
+        embed.add_field(
+            name="🎮 СОЗДАТЬ КОМАНДУ",
+            value="Создать команду для выдачи роли с настройками",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📊 АКТИВНЫЕ КОМАНДЫ", 
+            value="Просмотр всех активных команд и их статуса",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⚡ БЫСТРАЯ КОМАНДА",
+            value="Создать команду на 24 часа без ограничений",
+            inline=False
         )
         
         view = MainRoleView()
@@ -859,7 +821,53 @@ class MainPanelView(View):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-# ========== КОМАНДЫ ДЛЯ СОЗДАНИЯ ПАНЕЛЕЙ ==========
+# ========== СИСТЕМА РОЛЕЙ (упрощенная версия) ==========
+
+class MainRoleView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="СОЗДАТЬ КОМАНДУ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="create_link_btn", row=0)
+    async def create_link_button(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.send_message("🔄 Система ролей в разработке...", ephemeral=True)
+    
+    @discord.ui.button(label="АКТИВНЫЕ КОМАНДЫ", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="active_links_btn", row=0)
+    async def active_links_button(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.send_message("🔄 Система ролей в разработке...", ephemeral=True)
+    
+    @discord.ui.button(label="БЫСТРАЯ КОМАНДА", style=discord.ButtonStyle.success, emoji="⚡", custom_id="quick_link_btn", row=1)
+    async def quick_link_button(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.send_message("🔄 Система ролей в разработке...", ephemeral=True)
+    
+    @discord.ui.button(label="НАЗАД", style=discord.ButtonStyle.secondary, emoji="🔙", custom_id="back_btn", row=1)
+    async def back_button(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title="⚙️ Панель управления сервером",
+            description="Выберите раздел для управления:",
+            color=0x5865F2
+        )
+        
+        view = MainPanelView()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+# ========== КОМАНДЫ БОТА ==========
+
+@bot.event
+async def on_ready():
+    print(f'🎉 Бот {bot.user} запущен!')
+    print(f'📊 Подключен к {len(bot.guilds)} серверам')
+    
+    # Регистрируем постоянные кнопки
+    bot.add_view(MainPanelView())
+    bot.add_view(MainRoleView())
+    
+    # Устанавливаем статус
+    try:
+        activity = discord.Activity(type=discord.ActivityType.watching, name="за сервером 👁️")
+        await bot.change_presence(activity=activity, status=discord.Status.online)
+        print("✅ Статус бота установлен: 'Смотрящий за сервером 👁️'")
+    except Exception as e:
+        print(f"⚠️ Не удалось установить статус: {e}")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -903,35 +911,13 @@ async def панель(ctx):
     
     await ctx.message.delete()
 
-# ========== ОСНОВНОЙ КОД БОТА ==========
-TOKEN = os.getenv('DISCORD_TOKEN')
-
-if not TOKEN:
-    raise ValueError("❌ DISCORD_TOKEN не установлен!")
-
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-
-bot = commands.Bot(command_prefix='!', intents=intents)
-
-@bot.event
-async def on_ready():
-    print(f'🎉 Бот {bot.user} запущен!')
-    print(f'📊 Подключен к {len(bot.guilds)} серверам')
-    
-    # Регистрируем постоянные кнопки
-    bot.add_view(MainPanelView())
-    
-    # Устанавливаем статус
-    try:
-        activity = discord.Activity(type=discord.ActivityType.watching, name="за сервером 👁️")
-        await bot.change_presence(activity=activity, status=discord.Status.online)
-        print("✅ Статус бота установлен: 'Смотрящий за сервером 👁️'")
-    except Exception as e:
-        print(f"⚠️ Не удалось установить статус: {e}")
-
 # ========== ЗАПУСК ПРИЛОЖЕНИЯ ==========
 
 if __name__ == '__main__':
     keep_alive()
+    print(f"🚀 Запускаю Multi Bot на порту {port}")
+    
+    try:
+        bot.run(TOKEN)
+    except Exception as e:
+        print(f"❌ Ошибка запуска бота: {e}")
