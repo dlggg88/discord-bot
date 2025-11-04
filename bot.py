@@ -64,6 +64,20 @@ class Database:
             )
         ''')
         
+        # Таблица для склада
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS storage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                server_id INTEGER,
+                resource_name TEXT,
+                resource_amount INTEGER DEFAULT 0,
+                resource_description TEXT,
+                last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_by INTEGER,
+                updated_by_name TEXT
+            )
+        ''')
+        
         self.conn.commit()
 
 db = Database()
@@ -136,6 +150,41 @@ class RoleLinkSystem:
         return cursor.fetchall()
 
 role_link_system = RoleLinkSystem()
+
+# ========== СИСТЕМА СКЛАДА ==========
+class StorageSystem:
+    def add_resource(self, server_id: int, resource_name: str, amount: int, description: str, user_id: int, user_name: str):
+        """Добавить или обновить ресурс на складе"""
+        cursor = db.conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO storage 
+            (server_id, resource_name, resource_amount, resource_description, updated_by, updated_by_name)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (server_id, resource_name, amount, description, user_id, user_name))
+        db.conn.commit()
+    
+    def get_resources(self, server_id: int) -> List:
+        """Получить все ресурсы склада"""
+        cursor = db.conn.cursor()
+        cursor.execute('''
+            SELECT resource_name, resource_amount, resource_description, updated_by_name, last_updated
+            FROM storage 
+            WHERE server_id = ?
+            ORDER BY resource_name
+        ''', (server_id,))
+        return cursor.fetchall()
+    
+    def update_resource_amount(self, server_id: int, resource_name: str, new_amount: int, user_id: int, user_name: str):
+        """Обновить количество ресурса"""
+        cursor = db.conn.cursor()
+        cursor.execute('''
+            UPDATE storage 
+            SET resource_amount = ?, updated_by = ?, updated_by_name = ?, last_updated = CURRENT_TIMESTAMP
+            WHERE server_id = ? AND resource_name = ?
+        ''', (new_amount, user_id, user_name, server_id, resource_name))
+        db.conn.commit()
+
+storage_system = StorageSystem()
 
 # ========== КОМПОНЕНТЫ ИНТЕРФЕЙСА ==========
 
@@ -488,7 +537,258 @@ class QuickRoleView(View):
         
         return callback
 
-# ========== ИСПРАВЛЕННЫЕ КНОПКИ БЕЗ ДВОЙНЫХ СМАЙЛОВ ==========
+# ========== СИСТЕМА СКЛАДА - МОДАЛЬНЫЕ ОКНА ==========
+
+class AddResourceModal(Modal):
+    def __init__(self):
+        super().__init__(title="📥 Добавить ресурс")
+        
+        self.resource_name = TextInput(
+            label="Название ресурса",
+            placeholder="Например: Дерево, Железо, Золото...",
+            max_length=50,
+            required=True
+        )
+        
+        self.amount = TextInput(
+            label="Количество",
+            placeholder="Введите число",
+            default="0",
+            max_length=10,
+            required=True
+        )
+        
+        self.description = TextInput(
+            label="Описание",
+            placeholder="Описание ресурса...",
+            style=discord.TextStyle.paragraph,
+            required=False
+        )
+        
+        self.add_item(self.resource_name)
+        self.add_item(self.amount)
+        self.add_item(self.description)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            amount = int(self.amount.value)
+            if amount < 0:
+                await interaction.response.send_message("❌ Количество не может быть отрицательным", ephemeral=True)
+                return
+            
+            storage_system.add_resource(
+                server_id=interaction.guild.id,
+                resource_name=self.resource_name.value,
+                amount=amount,
+                description=self.description.value,
+                user_id=interaction.user.id,
+                user_name=str(interaction.user)
+            )
+            
+            embed = discord.Embed(
+                title="✅ Ресурс добавлен",
+                description=f"**{self.resource_name.value}** добавлен на склад",
+                color=0x00ff00
+            )
+            embed.add_field(name="Количество", value=f"`{amount}`", inline=True)
+            if self.description.value:
+                embed.add_field(name="Описание", value=self.description.value, inline=False)
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+        except ValueError:
+            await interaction.response.send_message("❌ Введите корректное число для количества", ephemeral=True)
+
+class UpdateResourceModal(Modal):
+    def __init__(self, resource_name, current_amount):
+        super().__init__(title="📝 Обновить ресурс")
+        self.resource_name = resource_name
+        
+        self.new_amount = TextInput(
+            label=f"Новое количество для {resource_name}",
+            placeholder=f"Текущее: {current_amount}",
+            default=str(current_amount),
+            max_length=10,
+            required=True
+        )
+        
+        self.add_item(self.new_amount)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            new_amount = int(self.new_amount.value)
+            if new_amount < 0:
+                await interaction.response.send_message("❌ Количество не может быть отрицательным", ephemeral=True)
+                return
+            
+            storage_system.update_resource_amount(
+                server_id=interaction.guild.id,
+                resource_name=self.resource_name,
+                new_amount=new_amount,
+                user_id=interaction.user.id,
+                user_name=str(interaction.user)
+            )
+            
+            embed = discord.Embed(
+                title="✅ Ресурс обновлен",
+                description=f"**{self.resource_name}** обновлен",
+                color=0x00ff00
+            )
+            embed.add_field(name="Новое количество", value=f"`{new_amount}`", inline=True)
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+        except ValueError:
+            await interaction.response.send_message("❌ Введите корректное число для количества", ephemeral=True)
+
+# ========== ПАНЕЛЬ СКЛАДА С КНОПКАМИ ==========
+
+class StorageView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="📊 БАЛАНС", style=discord.ButtonStyle.primary, emoji="📊", custom_id="storage_balance", row=0)
+    async def balance_button(self, interaction: discord.Interaction, button: Button):
+        try:
+            await interaction.response.defer(ephemeral=True)
+            
+            resources = storage_system.get_resources(interaction.guild.id)
+            
+            if not resources:
+                await interaction.followup.send("📭 Склад пуст. Добавьте ресурсы с помощью кнопки '📥 ДОБАВИТЬ'", ephemeral=True)
+                return
+            
+            embed = discord.Embed(
+                title="📦 Баланс склада",
+                description=f"Всего ресурсов: {len(resources)}",
+                color=0x9567FE
+            )
+            
+            total_value = 0
+            for resource_name, amount, description, updated_by, last_updated in resources:
+                total_value += amount
+                last_updated_dt = datetime.fromisoformat(last_updated)
+                last_updated_text = last_updated_dt.strftime("%d.%m %H:%M")
+                
+                embed.add_field(
+                    name=f"📦 {resource_name}",
+                    value=(
+                        f"**Количество:** `{amount}`\n"
+                        f"**Обновил:** {updated_by}\n"
+                        f"**Время:** {last_updated_text}"
+                    ),
+                    inline=True
+                )
+            
+            embed.add_field(
+                name="💰 Общая стоимость",
+                value=f"`{total_value}` единиц",
+                inline=False
+            )
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            
+        except Exception as e:
+            print(f"Ошибка в balance_button: {e}")
+            await interaction.followup.send("❌ Ошибка при загрузке баланса", ephemeral=True)
+    
+    @discord.ui.button(label="📥 ДОБАВИТЬ", style=discord.ButtonStyle.success, emoji="📥", custom_id="storage_add", row=0)
+    async def add_button(self, interaction: discord.Interaction, button: Button):
+        modal = AddResourceModal()
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="📝 РЕДАКТИРОВАТЬ", style=discord.ButtonStyle.secondary, emoji="📝", custom_id="storage_edit", row=1)
+    async def edit_button(self, interaction: discord.Interaction, button: Button):
+        try:
+            await interaction.response.defer(ephemeral=True)
+            
+            resources = storage_system.get_resources(interaction.guild.id)
+            
+            if not resources:
+                await interaction.followup.send("📭 Склад пуст. Сначала добавьте ресурсы", ephemeral=True)
+                return
+            
+            embed = discord.Embed(
+                title="📝 Редактирование ресурсов",
+                description="Выберите ресурс для редактирования:",
+                color=0x9567FE
+            )
+            
+            view = ResourceEditView(resources)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            print(f"Ошибка в edit_button: {e}")
+            await interaction.followup.send("❌ Ошибка при загрузке ресурсов", ephemeral=True)
+    
+    @discord.ui.button(label="📈 СТАТИСТИКА", style=discord.ButtonStyle.primary, emoji="📈", custom_id="storage_stats", row=1)
+    async def stats_button(self, interaction: discord.Interaction, button: Button):
+        try:
+            await interaction.response.defer(ephemeral=True)
+            
+            resources = storage_system.get_resources(interaction.guild.id)
+            
+            if not resources:
+                await interaction.followup.send("📭 Склад пуст", ephemeral=True)
+                return
+            
+            total_resources = len(resources)
+            total_amount = sum(amount for _, amount, _, _, _ in resources)
+            most_common = max(resources, key=lambda x: x[1]) if resources else None
+            
+            embed = discord.Embed(
+                title="📈 Статистика склада",
+                color=0x9567FE
+            )
+            
+            embed.add_field(name="📊 Всего ресурсов", value=f"`{total_resources}` видов", inline=True)
+            embed.add_field(name="💰 Общее количество", value=f"`{total_amount}` единиц", inline=True)
+            
+            if most_common:
+                embed.add_field(
+                    name="🏆 Самый частый ресурс",
+                    value=f"**{most_common[0]}** - `{most_common[1]}` единиц",
+                    inline=False
+                )
+            
+            # Топ 5 ресурсов по количеству
+            top_resources = sorted(resources, key=lambda x: x[1], reverse=True)[:5]
+            top_text = "\n".join([f"• **{name}** - `{amount}`" for name, amount, _, _, _ in top_resources])
+            embed.add_field(name="🏅 Топ 5 ресурсов", value=top_text, inline=False)
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            
+        except Exception as e:
+            print(f"Ошибка в stats_button: {e}")
+            await interaction.followup.send("❌ Ошибка при загрузке статистики", ephemeral=True)
+
+class ResourceEditView(View):
+    def __init__(self, resources):
+        super().__init__(timeout=180)
+        self.resources = resources
+        
+        self.select = Select(
+            placeholder="Выберите ресурс для редактирования...",
+            options=[
+                discord.SelectOption(
+                    label=f"{name} ({amount})",
+                    value=name,
+                    description=description[:50] if description else "Без описания"
+                ) for name, amount, description, _, _ in resources[:25]
+            ]
+        )
+        self.select.callback = self.resource_selected
+        self.add_item(self.select)
+    
+    async def resource_selected(self, interaction: discord.Interaction):
+        resource_name = self.select.values[0]
+        # Находим текущее количество ресурса
+        current_amount = next((amount for name, amount, _, _, _ in self.resources if name == resource_name), 0)
+        
+        modal = UpdateResourceModal(resource_name, current_amount)
+        await interaction.response.send_modal(modal)
+
+# ========== ОСНОВНЫЕ ПАНЕЛИ ==========
 
 class PermanentRoleView(View):
     def __init__(self):
@@ -635,52 +935,6 @@ class PermanentRoleView(View):
             print(f"Ошибка в help_button: {e}")
             await interaction.response.send_message("❌ Произошла ошибка", ephemeral=True)
 
-# ========== ПАНЕЛЬ СКЛАДА ==========
-
-class StorageView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-    
-    @discord.ui.button(label="СКЛАД", style=discord.ButtonStyle.primary, emoji="📦", custom_id="storage_main", row=0)
-    async def storage_button(self, interaction: discord.Interaction, button: Button):
-        embed = discord.Embed(
-            title="📦 Управление складом",
-            description="Система управления ресурсами сервера",
-            color=0x9567FE
-        )
-        
-        embed.add_field(
-            name="📊 Баланс",
-            value="Просмотр ресурсов сервера",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="📥 Пополнить",
-            value="Добавить ресурсы на склад",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="📤 Выдать",
-            value="Выдать ресурсы участникам",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="📈 Статистика",
-            value="Анализ использования ресурсов",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="⚙️ Настройки",
-            value="Конфигурация системы склада",
-            inline=True
-        )
-        
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
 class MainPanelView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -752,31 +1006,25 @@ class MainPanelView(View):
         
         embed.add_field(
             name="📊 Баланс",
-            value="Просмотр ресурсов сервера",
+            value="Просмотр всех ресурсов на складе",
             inline=True
         )
         
         embed.add_field(
-            name="📥 Пополнить",
-            value="Добавить ресурсы на склад",
+            name="📥 Добавить",
+            value="Добавить новый ресурс на склад",
             inline=True
         )
         
         embed.add_field(
-            name="📤 Выдать",
-            value="Выдать ресурсы участникам",
+            name="📝 Редактировать",
+            value="Изменить количество ресурсов",
             inline=True
         )
         
         embed.add_field(
             name="📈 Статистика",
             value="Анализ использования ресурсов",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="⚙️ Настройки",
-            value="Конфигурация системы склада",
             inline=True
         )
         
@@ -793,7 +1041,7 @@ class MainPanelView(View):
         
         embed.add_field(
             name="🚀 Возможности",
-            value="• Управление ролями\n• Система команд\n• Веб-панель\n• Модерация",
+            value="• Управление ролями\n• Система команд\n• Управление складом\n• Модерация",
             inline=True
         )
         
