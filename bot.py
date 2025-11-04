@@ -141,7 +141,7 @@ role_link_system = RoleLinkSystem()
 
 class CopyLinkModal(Modal):
     def __init__(self, link_url):
-        super().__init__(title="📋 Копирование команды")
+        super().__init__(title="Копирование команды")
         self.link_url = link_url
         
         self.link_field = TextInput(
@@ -157,7 +157,7 @@ class CopyLinkModal(Modal):
 
 class CustomLinkModal(Modal):
     def __init__(self, role):
-        super().__init__(title="🎛️ Кастомные настройки")
+        super().__init__(title="Кастомные настройки")
         self.role = role
         
         self.uses = TextInput(
@@ -228,12 +228,12 @@ class LinkActionsView(View):
         self.link_code = link_code
         self.role_name = role_name
     
-    @discord.ui.button(label="📋 СКОПИРОВАТЬ", style=discord.ButtonStyle.success, emoji="📋", row=0)
+    @discord.ui.button(label="📋 КОПИРОВАТЬ", style=discord.ButtonStyle.success, row=0)
     async def copy_command(self, interaction: discord.Interaction, button: Button):
         modal = CopyLinkModal(f"!роль {self.link_code}")
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="📤 ПОДЕЛИТЬСЯ", style=discord.ButtonStyle.primary, emoji="📤", row=0)
+    @discord.ui.button(label="📤 ПОДЕЛИТЬСЯ", style=discord.ButtonStyle.primary, row=0)
     async def share_link(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title=f"🔗 Получить роль: {self.role_name}",
@@ -243,24 +243,20 @@ class LinkActionsView(View):
         embed.add_field(name="Команда", value=f"```!роль {self.link_code}```", inline=False)
         embed.set_footer(text="Сообщение автоматически удалится через 1 минуту")
         
-        # Отправляем в общий чат и удаляем через минуту
         message = await interaction.channel.send(embed=embed)
         await interaction.response.send_message("✅ Сообщение отправлено в чат!", ephemeral=True)
         
-        # Удаляем через 1 минуту
         await asyncio.sleep(60)
         try:
             await message.delete()
         except:
             pass
     
-    @discord.ui.button(label="🎯 БЫСТРАЯ ОТПРАВКА", style=discord.ButtonStyle.secondary, emoji="🎯", row=1)
+    @discord.ui.button(label="🎯 ОТПРАВИТЬ", style=discord.ButtonStyle.secondary, row=1)
     async def quick_send(self, interaction: discord.Interaction, button: Button):
-        # Отправляем команду прямо в чат
         message = await interaction.channel.send(f"**Получить роль '{self.role_name}':**\n```!роль {self.link_code}```")
         await interaction.response.send_message("✅ Команда отправлена в чат!", ephemeral=True)
         
-        # Удаляем через 30 секунд
         await asyncio.sleep(30)
         try:
             await message.delete()
@@ -274,17 +270,17 @@ class ActiveLinksView(View):
         self.page = page
         self.links_per_page = 5
         
-    @discord.ui.button(label="⬅️", style=discord.ButtonStyle.secondary, custom_id="prev_btn")
+    @discord.ui.button(label="⬅️", style=discord.ButtonStyle.secondary)
     async def previous_page(self, interaction: discord.Interaction, button: Button):
         if self.page > 0:
             await self.show_page(interaction, self.page - 1)
     
-    @discord.ui.button(label="➡️", style=discord.ButtonStyle.secondary, custom_id="next_btn")
+    @discord.ui.button(label="➡️", style=discord.ButtonStyle.secondary)
     async def next_page(self, interaction: discord.Interaction, button: Button):
         if (self.page + 1) * self.links_per_page < len(self.links):
             await self.show_page(interaction, self.page + 1)
     
-    @discord.ui.button(label="🔄", style=discord.ButtonStyle.primary, custom_id="refresh_btn")
+    @discord.ui.button(label="🔄", style=discord.ButtonStyle.primary)
     async def refresh(self, interaction: discord.Interaction, button: Button):
         await self.show_page(interaction, self.page)
     
@@ -339,7 +335,7 @@ class RoleSelectView(View):
         self.action_type = action_type
         
         self.select = Select(
-            placeholder="🎯 Выберите роль...",
+            placeholder="Выберите роль...",
             options=[
                 discord.SelectOption(
                     label=role.name[:25],
@@ -394,19 +390,19 @@ class LinkSettingsView(View):
         self.creator_id = creator_id
         self.creator_name = creator_name
     
-    @discord.ui.button(label="🚀 БЕЗ ОГРАНИЧЕНИЙ", style=discord.ButtonStyle.success, emoji="🚀", row=0)
+    @discord.ui.button(label="🚀 БЕЗ ОГРАНИЧЕНИЙ", style=discord.ButtonStyle.success, row=0)
     async def unlimited_button(self, interaction: discord.Interaction, button: Button):
         await self.create_link(interaction, 0, 0)
     
-    @discord.ui.button(label="🎯 10 ИСПОЛЬЗОВАНИЙ", style=discord.ButtonStyle.primary, emoji="🎯", row=0)
+    @discord.ui.button(label="🎯 10 ИСПОЛЬЗОВАНИЙ", style=discord.ButtonStyle.primary, row=0)
     async def ten_uses_button(self, interaction: discord.Interaction, button: Button):
         await self.create_link(interaction, 10, 24)
     
-    @discord.ui.button(label="⏰ 24 ЧАСА", style=discord.ButtonStyle.primary, emoji="⏰", row=1)
+    @discord.ui.button(label="⏰ 24 ЧАСА", style=discord.ButtonStyle.primary, row=1)
     async def one_day_button(self, interaction: discord.Interaction, button: Button):
         await self.create_link(interaction, 0, 24)
     
-    @discord.ui.button(label="⚙️ КАСТОМНЫЕ НАСТРОЙКИ", style=discord.ButtonStyle.secondary, emoji="⚙️", row=1)
+    @discord.ui.button(label="⚙️ КАСТОМНЫЕ", style=discord.ButtonStyle.secondary, row=1)
     async def custom_button(self, interaction: discord.Interaction, button: Button):
         modal = CustomLinkModal(self.role)
         await interaction.response.send_modal(modal)
@@ -454,7 +450,7 @@ class QuickRoleView(View):
             button = Button(
                 label=role.name[:15],
                 style=discord.ButtonStyle.primary,
-                custom_id=f"quick_role_{role.id}"  # ✅ Добавляем кастомный ID
+                custom_id=f"quick_role_{role.id}"
             )
             button.callback = self.create_quick_link_callback(role)
             self.add_item(button)
@@ -462,7 +458,7 @@ class QuickRoleView(View):
     def create_quick_link_callback(self, role):
         async def callback(interaction: discord.Interaction):
             try:
-                await interaction.response.defer(ephemeral=True)  # ✅ Откладываем ответ
+                await interaction.response.defer(ephemeral=True)
                 
                 link_code = role_link_system.create_role_link(
                     server_id=interaction.guild.id,
@@ -492,16 +488,16 @@ class QuickRoleView(View):
         
         return callback
 
-# ========== ИСПРАВЛЕННЫЕ КНОПКИ ==========
+# ========== ИСПРАВЛЕННЫЕ КНОПКИ БЕЗ ДВОЙНЫХ СМАЙЛОВ ==========
 
 class PermanentRoleView(View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="🎮 СОЗДАТЬ КОМАНДУ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="perm_create_link", row=0)
+    @discord.ui.button(label="СОЗДАТЬ КОМАНДУ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="perm_create_link", row=0)
     async def create_link_button(self, interaction: discord.Interaction, button: Button):
         try:
-            await interaction.response.defer(ephemeral=True)  # ✅ Важно: отложить ответ
+            await interaction.response.defer(ephemeral=True)
             
             roles = [role for role in interaction.guild.roles if role.name != "@everyone" and not role.managed]
             
@@ -522,7 +518,7 @@ class PermanentRoleView(View):
             print(f"Ошибка в create_link_button: {e}")
             await interaction.followup.send("❌ Произошла ошибка при создании команды", ephemeral=True)
     
-    @discord.ui.button(label="📊 АКТИВНЫЕ КОМАНДЫ", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="perm_active_links", row=0)
+    @discord.ui.button(label="АКТИВНЫЕ КОМАНДЫ", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="perm_active_links", row=0)
     async def active_links_button(self, interaction: discord.Interaction, button: Button):
         try:
             await interaction.response.defer(ephemeral=True)
@@ -539,7 +535,6 @@ class PermanentRoleView(View):
                 color=0x3498db
             )
             
-            # Показываем первые 5 команд с информацией о создателе
             for link_code, role_name, uses_limit, uses_count, expires_at, created_by, created_at in links[:5]:
                 status = "✅ Активна"
                 if uses_limit > 0:
@@ -577,7 +572,7 @@ class PermanentRoleView(View):
             print(f"Ошибка в active_links_button: {e}")
             await interaction.followup.send("❌ Произошла ошибка при загрузке команд", ephemeral=True)
     
-    @discord.ui.button(label="⚡ БЫСТРАЯ КОМАНДА", style=discord.ButtonStyle.success, emoji="⚡", custom_id="perm_quick_link", row=1)
+    @discord.ui.button(label="БЫСТРАЯ КОМАНДА", style=discord.ButtonStyle.success, emoji="⚡", custom_id="perm_quick_link", row=1)
     async def quick_link_button(self, interaction: discord.Interaction, button: Button):
         try:
             await interaction.response.defer(ephemeral=True)
@@ -602,7 +597,7 @@ class PermanentRoleView(View):
             print(f"Ошибка в quick_link_button: {e}")
             await interaction.followup.send("❌ Произошла ошибка при создании быстрой команды", ephemeral=True)
     
-    @discord.ui.button(label="❓ ПОМОЩЬ", style=discord.ButtonStyle.danger, emoji="❓", custom_id="perm_help", row=1)
+    @discord.ui.button(label="ПОМОЩЬ", style=discord.ButtonStyle.danger, emoji="❓", custom_id="perm_help", row=1)
     async def help_button(self, interaction: discord.Interaction, button: Button):
         try:
             embed = discord.Embed(
@@ -640,11 +635,57 @@ class PermanentRoleView(View):
             print(f"Ошибка в help_button: {e}")
             await interaction.response.send_message("❌ Произошла ошибка", ephemeral=True)
 
+# ========== ПАНЕЛЬ СКЛАДА ==========
+
+class StorageView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="СКЛАД", style=discord.ButtonStyle.primary, emoji="📦", custom_id="storage_main", row=0)
+    async def storage_button(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title="📦 Управление складом",
+            description="Система управления ресурсами сервера",
+            color=0x9567FE
+        )
+        
+        embed.add_field(
+            name="📊 Баланс",
+            value="Просмотр ресурсов сервера",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📥 Пополнить",
+            value="Добавить ресурсы на склад",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📤 Выдать",
+            value="Выдать ресурсы участникам",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📈 Статистика",
+            value="Анализ использования ресурсов",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="⚙️ Настройки",
+            value="Конфигурация системы склада",
+            inline=True
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 class MainPanelView(View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="🎮 УПРАВЛЕНИЕ РОЛЯМИ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="main_roles", row=0)
+    @discord.ui.button(label="УПРАВЛЕНИЕ РОЛЯМИ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="main_roles", row=0)
     async def roles_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title="🎮 Управление ролями",
@@ -673,7 +714,7 @@ class MainPanelView(View):
         view = PermanentRoleView()
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
-    @discord.ui.button(label="👥 УПРАВЛЕНИЕ УЧАСТНИКАМИ", style=discord.ButtonStyle.secondary, emoji="👥", custom_id="main_members", row=0)
+    @discord.ui.button(label="УПРАВЛЕНИЕ УЧАСТНИКАМИ", style=discord.ButtonStyle.secondary, emoji="👥", custom_id="main_members", row=0)
     async def members_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title="👥 Управление участниками",
@@ -701,41 +742,48 @@ class MainPanelView(View):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
     
-    @discord.ui.button(label="⚙️ НАСТРОЙКИ СИСТЕМЫ", style=discord.ButtonStyle.success, emoji="⚙️", custom_id="main_settings", row=1)
-    async def settings_button(self, interaction: discord.Interaction, button: Button):
+    @discord.ui.button(label="СКЛАД", style=discord.ButtonStyle.success, emoji="📦", custom_id="main_storage", row=1)
+    async def storage_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
-            title="⚙️ Настройки системы",
-            description="Настройки бота и сервера:",
-            color=0x00ff00
+            title="📦 Управление складом",
+            description="Система управления ресурсами сервера",
+            color=0x9567FE
         )
         
         embed.add_field(
-            name="🔧 Конфигурация",
-            value="Настройки системы ролей",
+            name="📊 Баланс",
+            value="Просмотр ресурсов сервера",
             inline=True
         )
         
         embed.add_field(
-            name="🛡️ Безопасность",
-            value="Настройки прав доступа",
+            name="📥 Пополнить",
+            value="Добавить ресурсы на склад",
             inline=True
         )
         
         embed.add_field(
-            name="📈 Логирование",
-            value="Настройки журналирования",
+            name="📤 Выдать",
+            value="Выдать ресурсы участникам",
             inline=True
         )
         
         embed.add_field(
-            name="🔄 В разработке",
-            value="Настройки будут доступны в следующем обновлении",
-            inline=False
+            name="📈 Статистика",
+            value="Анализ использования ресурсов",
+            inline=True
         )
         
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        embed.add_field(
+            name="⚙️ Настройки",
+            value="Конфигурация системы склада",
+            inline=True
+        )
+        
+        view = StorageView()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
-    @discord.ui.button(label="ℹ️ О СИСТЕМЕ", style=discord.ButtonStyle.danger, emoji="ℹ️", custom_id="main_about", row=1)
+    @discord.ui.button(label="О СИСТЕМЕ", style=discord.ButtonStyle.danger, emoji="ℹ️", custom_id="main_about", row=1)
     async def about_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title="ℹ️ О системе Multi Bot",
@@ -777,6 +825,8 @@ intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+# ========== ОБРАБОТЧИКИ СОБЫТИЙ ==========
+
 @bot.event
 async def on_ready():
     print(f'🎉 Бот {bot.user} запущен!')
@@ -785,10 +835,41 @@ async def on_ready():
     # Регистрируем постоянные кнопки
     bot.add_view(PermanentRoleView())
     bot.add_view(MainPanelView())
+    bot.add_view(StorageView())
     
-    # Устанавливаем статус "Смотрящий за сервером"
-    activity = discord.Activity(type=discord.ActivityType.watching, name="Смотрящий за сервером 👁️")
+    # Устанавливаем статус
+    activity = discord.Activity(type=discord.ActivityType.watching, name="за сервером")
     await bot.change_presence(activity=activity)
+
+@bot.event
+async def on_member_remove(member):
+    """Автоматический бан при выходе пользователя"""
+    try:
+        # Баним всех, кто покидает сервер
+        try:
+            await member.ban(reason="Автоматический бан при выходе")
+            print(f"🔨 Пользователь {member} забанен при выходе")
+            
+            # Логируем в канал
+            log_channel = discord.utils.get(member.guild.text_channels, name="логи")
+            if log_channel:
+                embed = discord.Embed(
+                    title="🔨 Автоматический бан",
+                    description=f"Пользователь **{member}** забанен при выходе",
+                    color=0xff0000,
+                    timestamp=datetime.now()
+                )
+                embed.add_field(name="ID", value=member.id, inline=True)
+                embed.add_field(name="Причина", value="Автоматический бан при выходе", inline=True)
+                await log_channel.send(embed=embed)
+                
+        except discord.Forbidden:
+            print(f"❌ Нет прав для бана пользователя {member}")
+        except discord.HTTPException as e:
+            print(f"❌ Ошибка при бане пользователя {member}: {e}")
+                
+    except Exception as e:
+        print(f"Ошибка в автобане: {e}")
 
 # ========== КОМАНДЫ ДЛЯ СОЗДАНИЯ ПАНЕЛЕЙ ==========
 
@@ -827,9 +908,8 @@ async def создать_панель(ctx):
     
     try:
         await message.pin()
-        await ctx.send("✅ Панель создана и закреплена!", delete_after=5)
     except:
-        await ctx.send("✅ Панель создана! (Не удалось закрепить)", delete_after=5)
+        pass
     
     await ctx.message.delete()
 
@@ -854,8 +934,8 @@ async def главная_панель(ctx):
         inline=False
     )
     embed.add_field(
-        name="⚙️ НАСТРОЙКИ СИСТЕМЫ", 
-        value="Настройки бота и сервера", 
+        name="📦 СКЛАД", 
+        value="Управление ресурсами сервера", 
         inline=False
     )
     embed.add_field(
@@ -869,21 +949,26 @@ async def главная_панель(ctx):
     
     try:
         await message.pin()
-        await ctx.send("✅ Главная панель создана!", delete_after=5)
     except:
         pass
     
     await ctx.message.delete()
 
-# ========== ИСПРАВЛЕННАЯ КОМАНДА ДЛЯ ПОЛУЧЕНИЯ РОЛИ ==========
+# ========== КОМАНДА ДЛЯ ПОЛУЧЕНИЯ РОЛИ (СЕКРЕТНАЯ) ==========
 
 @bot.command()
-async def роль(ctx, код: str = None):  # ✅ Добавляем значение по умолчанию
-    """Получить роль по коду команды"""
+async def роль(ctx, код: str = None):
+    """Получить роль по коду команды (секретно)"""
     if not код:
-        await ctx.send("❌ Укажите код команды: `!роль КОД`", delete_after=10)
-        await ctx.message.delete(delay=10)
+        # Секретное сообщение, которое удалится сразу
+        message = await ctx.send("❌ Укажите код команды: `!роль КОД`")
+        await asyncio.sleep(5)
+        await ctx.message.delete()
+        await message.delete()
         return
+    
+    # Сразу удаляем команду пользователя
+    await ctx.message.delete()
     
     result = role_link_system.use_role_link(код, ctx.guild.id)
     
@@ -895,30 +980,36 @@ async def роль(ctx, код: str = None):  # ✅ Добавляем знач�
             try:
                 if role in ctx.author.roles:
                     await ctx.author.remove_roles(role)
-                    message = await ctx.send(f"✅ Роль {role.mention} убрана!")
+                    # Отправляем секретное сообщение в ЛС
+                    try:
+                        await ctx.author.send(f"✅ Роль **{role.name}** убрана!")
+                    except:
+                        # Если ЛС закрыты, отправляем временное сообщение в чат
+                        message = await ctx.send(f"✅ {ctx.author.mention}, роль **{role.name}** убрана!", delete_after=5)
                 else:
                     await ctx.author.add_roles(role)
-                    message = await ctx.send(f"✅ Роль {role.mention} выдана!")
-                
-                await asyncio.sleep(10)
-                await ctx.message.delete()
-                await message.delete()
+                    # Отправляем секретное сообщение в ЛС
+                    try:
+                        await ctx.author.send(f"✅ Роль **{role.name}** выдана!")
+                    except:
+                        # Если ЛС закрыты, отправляем временное сообщение в чат
+                        message = await ctx.send(f"✅ {ctx.author.mention}, роль **{role.name}** выдана!", delete_after=5)
                 
             except discord.Forbidden:
-                message = await ctx.send("❌ У бота нет прав для выдачи ролей")
-                await asyncio.sleep(10)
-                await ctx.message.delete()
-                await message.delete()
+                try:
+                    await ctx.author.send("❌ У бота нет прав для выдачи ролей")
+                except:
+                    message = await ctx.send("❌ У бота нет прав для выдачи ролей", delete_after=5)
         else:
-            message = await ctx.send("❌ Роль не найдена на сервере")
-            await asyncio.sleep(10)
-            await ctx.message.delete()
-            await message.delete()
+            try:
+                await ctx.author.send("❌ Роль не найдена на сервере")
+            except:
+                message = await ctx.send("❌ Роль не найдена на сервере", delete_after=5)
     else:
-        message = await ctx.send(f"❌ {result['error']}")
-        await asyncio.sleep(10)
-        await ctx.message.delete()
-        await message.delete()
+        try:
+            await ctx.author.send(f"❌ {result['error']}")
+        except:
+            message = await ctx.send(f"❌ {result['error']}", delete_after=5)
 
 # ========== ЗАПУСК ПРИЛОЖЕНИЯ ==========
 if __name__ == "__main__":
