@@ -50,24 +50,6 @@ class Database:
     def create_tables(self):
         cursor = self.conn.cursor()
         
-        # Таблица для ссылок ролей
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS role_links (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                server_id INTEGER,
-                role_id INTEGER,
-                link_code TEXT UNIQUE,
-                role_name TEXT,
-                uses_limit INTEGER DEFAULT 0,
-                uses_count INTEGER DEFAULT 0,
-                expires_at DATETIME,
-                created_by INTEGER,
-                created_by_name TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                is_active BOOLEAN DEFAULT TRUE
-            )
-        ''')
-        
         # Таблица для учета склада
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS warehouse (
@@ -176,43 +158,13 @@ class WarehouseSystem:
         db.conn.commit()
         return cursor.rowcount > 0
     
-    def get_warehouse_items(self, server_id: int, category: str = None) -> List:
-        cursor = db.conn.cursor()
-        
-        if category:
-            cursor.execute('''
-                SELECT id, item_name, category, quantity, unit, min_stock, location, notes, created_by_name, updated_at
-                FROM warehouse 
-                WHERE server_id = ? AND category = ?
-                ORDER BY category, item_name
-            ''', (server_id, category))
-        else:
-            cursor.execute('''
-                SELECT id, item_name, category, quantity, unit, min_stock, location, notes, created_by_name, updated_at
-                FROM warehouse 
-                WHERE server_id = ?
-                ORDER BY category, item_name
-            ''', (server_id,))
-        
-        return cursor.fetchall()
-    
-    def get_categories(self, server_id: int) -> List:
+    def get_warehouse_items(self, server_id: int) -> List:
         cursor = db.conn.cursor()
         cursor.execute('''
-            SELECT DISTINCT category 
+            SELECT id, item_name, category, quantity, unit, min_stock, location, notes, created_by_name, updated_at
             FROM warehouse 
-            WHERE server_id = ? 
-            ORDER BY category
-        ''', (server_id,))
-        return [row[0] for row in cursor.fetchall()]
-    
-    def get_low_stock_items(self, server_id: int) -> List:
-        cursor = db.conn.cursor()
-        cursor.execute('''
-            SELECT id, item_name, category, quantity, unit, min_stock, location
-            FROM warehouse 
-            WHERE server_id = ? AND quantity <= min_stock AND min_stock > 0
-            ORDER BY category, item_name
+            WHERE server_id = ?
+            ORDER BY item_name
         ''', (server_id,))
         return cursor.fetchall()
     
@@ -234,10 +186,10 @@ warehouse_system = WarehouseSystem()
 
 class AddItemModal(Modal):
     def __init__(self):
-        super().__init__(title="📦 Добавить товар на склад")
+        super().__init__(title="📦 Добавить предмет")
         
         self.item_name = TextInput(
-            label="Название товара",
+            label="Название предмета",
             placeholder="Например: Клавиатура Logitech",
             required=True,
             max_length=100
@@ -319,12 +271,12 @@ class AddItemModal(Modal):
             )
             
             await interaction.response.send_message(
-                f"✅ Товар '{self.item_name.value}' добавлен на склад! ID: {item_id}", 
+                f"✅ Предмет '{self.item_name.value}' добавлен на склад!", 
                 ephemeral=True
             )
             
             # Обновляем панель склада
-            await WarehouseView.show_warehouse(interaction)
+            await WarehousePanel.show_warehouse(interaction)
             
         except ValueError:
             await interaction.response.send_message("❌ Введите корректные числа для количества", ephemeral=True)
@@ -372,16 +324,16 @@ class UpdateQuantityModal(Modal):
                     f"✅ Количество '{self.item_name}' изменено: {self.current_quantity} → {new_quantity}", 
                     ephemeral=True
                 )
-                await WarehouseView.show_warehouse(interaction)
+                await WarehousePanel.show_warehouse(interaction)
             else:
-                await interaction.response.send_message("❌ Товар не найден", ephemeral=True)
+                await interaction.response.send_message("❌ Предмет не найден", ephemeral=True)
                 
         except ValueError:
             await interaction.response.send_message("❌ Введите корректное число", ephemeral=True)
 
 class IncomingModal(Modal):
     def __init__(self, item_id, item_name, current_quantity):
-        super().__init__(title="📥 Приход товара")
+        super().__init__(title="📥 Приход предмета")
         self.item_id = item_id
         self.item_name = item_name
         self.current_quantity = current_quantity
@@ -427,16 +379,16 @@ class IncomingModal(Modal):
                     f"✅ Приход '{self.item_name}': +{quantity_to_add} (всего: {new_quantity})", 
                     ephemeral=True
                 )
-                await WarehouseView.show_warehouse(interaction)
+                await WarehousePanel.show_warehouse(interaction)
             else:
-                await interaction.response.send_message("❌ Товар не найден", ephemeral=True)
+                await interaction.response.send_message("❌ Предмет не найден", ephemeral=True)
                 
         except ValueError:
             await interaction.response.send_message("❌ Введите корректное число", ephemeral=True)
 
 class OutgoingModal(Modal):
     def __init__(self, item_id, item_name, current_quantity):
-        super().__init__(title="📤 Расход товара")
+        super().__init__(title="📤 Расход предмета")
         self.item_id = item_id
         self.item_name = item_name
         self.current_quantity = current_quantity
@@ -468,7 +420,7 @@ class OutgoingModal(Modal):
                 return
             
             if new_quantity < 0:
-                await interaction.response.send_message("❌ Недостаточно товара на складе", ephemeral=True)
+                await interaction.response.send_message("❌ Недостаточно предметов на складе", ephemeral=True)
                 return
             
             success = warehouse_system.update_quantity(
@@ -486,133 +438,84 @@ class OutgoingModal(Modal):
                     f"✅ Списание '{self.item_name}': -{quantity_to_remove} (осталось: {new_quantity})", 
                     ephemeral=True
                 )
-                await WarehouseView.show_warehouse(interaction)
+                await WarehousePanel.show_warehouse(interaction)
             else:
-                await interaction.response.send_message("❌ Товар не найден", ephemeral=True)
+                await interaction.response.send_message("❌ Предмет не найден", ephemeral=True)
                 
         except ValueError:
             await interaction.response.send_message("❌ Введите корректное число", ephemeral=True)
 
-# ========== ПАНЕЛЬ УПРАВЛЕНИЯ СКЛАДОМ ==========
+# ========== ОТДЕЛЬНАЯ ПАНЕЛЬ СКЛАДА ==========
 
-class WarehouseView(View):
-    def __init__(self, category=None):
-        super().__init__(timeout=180)
-        self.category = category
+class WarehousePanel(View):
+    def __init__(self):
+        super().__init__(timeout=None)
     
     @discord.ui.button(label="ДОБАВИТЬ", style=discord.ButtonStyle.success, emoji="📦", row=0)
     async def add_item(self, interaction: discord.Interaction, button: Button):
         modal = AddItemModal()
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="ВСЕ ТОВАРЫ", style=discord.ButtonStyle.primary, emoji="📋", row=0)
-    async def all_items(self, interaction: discord.Interaction, button: Button):
+    @discord.ui.button(label="ПРЕДМЕТЫ", style=discord.ButtonStyle.primary, emoji="📋", row=0)
+    async def show_items(self, interaction: discord.Interaction, button: Button):
         await self.show_warehouse(interaction)
-    
-    @discord.ui.button(label="НИЗКИЙ ЗАПАС", style=discord.ButtonStyle.danger, emoji="⚠️", row=0)
-    async def low_stock(self, interaction: discord.Interaction, button: Button):
-        await self.show_low_stock(interaction)
     
     @discord.ui.button(label="ИСТОРИЯ", style=discord.ButtonStyle.secondary, emoji="📊", row=0)
     async def history(self, interaction: discord.Interaction, button: Button):
         await self.show_history(interaction)
     
-    @discord.ui.button(label="КАТЕГОРИИ", style=discord.ButtonStyle.primary, emoji="📁", row=1)
-    async def categories(self, interaction: discord.Interaction, button: Button):
-        await self.show_categories(interaction)
-    
-    @discord.ui.button(label="НАЗАД", style=discord.ButtonStyle.secondary, emoji="🔙", row=1)
-    async def back_button(self, interaction: discord.Interaction, button: Button):
+    @discord.ui.button(label="ГЛАВНАЯ", style=discord.ButtonStyle.secondary, emoji="🏠", row=1)
+    async def main_menu(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
-            title="⚙️ Панель управления сервером",
-            description="Выберите раздел для управления:",
+            title="🏠 Главное меню",
+            description="Выберите панель для управления:",
             color=0x5865F2
         )
         
-        view = MainPanelView()
+        view = MainMenuView()
         await interaction.response.edit_message(embed=embed, view=view)
     
     @classmethod
-    async def show_warehouse(cls, interaction: discord.Interaction, category: str = None):
-        items = warehouse_system.get_warehouse_items(interaction.guild.id, category)
+    async def show_warehouse(cls, interaction: discord.Interaction):
+        items = warehouse_system.get_warehouse_items(interaction.guild.id)
         
         embed = discord.Embed(
-            title="📦 Учет склада" + (f" - {category}" if category else ""),
-            description=f"Всего товаров: {len(items)}",
+            title="📦 Учет склада",
+            description=f"Всего предметов: {len(items)}",
             color=0x3498db
         )
         
         if not items:
             embed.description = "📭 Склад пуст"
-            view = WarehouseView()
+            view = WarehousePanel()
             await interaction.response.edit_message(embed=embed, view=view)
             return
         
-        # Группируем по категориям
-        categories = {}
-        for item in items:
-            cat = item[2]  # category
-            if cat not in categories:
-                categories[cat] = []
-            categories[cat].append(item)
-        
-        for category_name, category_items in categories.items():
-            category_text = ""
-            for item in category_items[:10]:  # Ограничиваем количество товаров в категории
-                item_id, name, _, quantity, unit, min_stock, location, notes, created_by, updated = item
-                
-                status = "✅"
-                if min_stock > 0 and quantity <= min_stock:
-                    status = "⚠️" if quantity > 0 else "❌"
-                
-                item_line = f"{status} **{name}** - {quantity} {unit}"
-                if min_stock > 0:
-                    item_line += f" (мин: {min_stock})"
-                if location:
-                    item_line += f" | 🗂️ {location}"
-                
-                category_text += f"{item_line}\n"
+        # Показываем все предметы в виде таблицы
+        items_text = ""
+        for item in items[:20]:  # Ограничиваем количество предметов
+            item_id, name, category, quantity, unit, min_stock, location, notes, created_by, updated = item
             
-            if category_text:
-                embed.add_field(
-                    name=f"📁 {category_name}",
-                    value=category_text,
-                    inline=False
-                )
+            status = "🟢"
+            if min_stock > 0 and quantity <= min_stock:
+                status = "🟡" if quantity > 0 else "🔴"
+            
+            item_line = f"{status} **{name}** - {quantity} {unit}"
+            if location:
+                item_line += f" | 🗂️ {location}"
+            
+            items_text += f"{item_line}\n"
         
-        if len(items) > 30:
-            embed.set_footer(text=f"Показано 30 из {len(items)} товаров. Используйте фильтры.")
-        
-        view = WarehouseView(category)
-        await interaction.response.edit_message(embed=embed, view=view)
-    
-    @classmethod
-    async def show_low_stock(cls, interaction: discord.Interaction):
-        low_stock_items = warehouse_system.get_low_stock_items(interaction.guild.id)
-        
-        embed = discord.Embed(
-            title="⚠️ Товары с низким запасом",
-            color=0xe74c3c
+        embed.add_field(
+            name="📋 Список предметов",
+            value=items_text,
+            inline=False
         )
         
-        if not low_stock_items:
-            embed.description = "✅ Все товары в норме"
-            view = WarehouseView()
-            await interaction.response.edit_message(embed=embed, view=view)
-            return
+        if len(items) > 20:
+            embed.set_footer(text=f"Показано 20 из {len(items)} предметов")
         
-        for item in low_stock_items:
-            item_id, name, category, quantity, unit, min_stock, location = item
-            
-            status = "❌" if quantity == 0 else "⚠️"
-            
-            embed.add_field(
-                name=f"{status} {name}",
-                value=f"**Остаток:** {quantity} {unit}\n**Мин. запас:** {min_stock} {unit}\n**Категория:** {category}",
-                inline=True
-            )
-        
-        view = WarehouseView()
+        view = WarehousePanel()
         await interaction.response.edit_message(embed=embed, view=view)
     
     @classmethod
@@ -626,7 +529,7 @@ class WarehouseView(View):
         
         if not movements:
             embed.description = "📭 Нет движений за последние 7 дней"
-            view = WarehouseView()
+            view = WarehousePanel()
             await interaction.response.edit_message(embed=embed, view=view)
             return
         
@@ -636,15 +539,12 @@ class WarehouseView(View):
             if change_type == 'incoming':
                 emoji = "📥"
                 change_text = f"+{quantity_change}"
-                color = 0x00ff00
             elif change_type == 'outgoing':
                 emoji = "📤"
                 change_text = f"-{quantity_change}"
-                color = 0xff0000
             else:
                 emoji = "📊"
                 change_text = f"→ {new_quantity}"
-                color = 0x3498db
             
             created_dt = datetime.fromisoformat(created_at)
             time_text = created_dt.strftime("%d.%m %H:%M")
@@ -655,200 +555,91 @@ class WarehouseView(View):
                 inline=False
             )
         
-        view = WarehouseView()
-        await interaction.response.edit_message(embed=embed, view=view)
-    
-    @classmethod
-    async def show_categories(cls, interaction: discord.Interaction):
-        categories = warehouse_system.get_categories(interaction.guild.id)
-        
-        embed = discord.Embed(
-            title="📁 Категории товаров",
-            color=0xf39c12
-        )
-        
-        if not categories:
-            embed.description = "📭 Категории не созданы"
-            view = WarehouseView()
-            await interaction.response.edit_message(embed=embed, view=view)
-            return
-        
-        # Получаем количество товаров в каждой категории
-        cursor = db.conn.cursor()
-        category_stats = {}
-        for category in categories:
-            cursor.execute('SELECT COUNT(*), SUM(quantity) FROM warehouse WHERE server_id = ? AND category = ?', 
-                         (interaction.guild.id, category))
-            count, total = cursor.fetchone()
-            category_stats[category] = (count, total or 0)
-        
-        categories_text = ""
-        for category in categories:
-            count, total = category_stats[category]
-            categories_text += f"📁 **{category}** - {count} товаров, всего {total} ед.\n"
-        
-        embed.description = categories_text
-        
-        view = CategoriesView(categories)
+        view = WarehousePanel()
         await interaction.response.edit_message(embed=embed, view=view)
 
-class CategoriesView(View):
-    def __init__(self, categories):
-        super().__init__(timeout=180)
-        self.categories = categories
-        
-        # Создаем выпадающий список с категориями
-        if categories:
-            self.select = Select(
-                placeholder="Выберите категорию...",
-                options=[
-                    discord.SelectOption(
-                        label=category[:25],
-                        value=category,
-                        description=f"Показать товары из {category}"
-                    ) for category in categories[:25]
-                ]
-            )
-            self.select.callback = self.category_selected
-            self.add_item(self.select)
-    
-    @discord.ui.button(label="НАЗАД", style=discord.ButtonStyle.secondary, emoji="🔙", row=1)
-    async def back_button(self, interaction: discord.Interaction, button: Button):
-        await WarehouseView.show_warehouse(interaction)
-    
-    async def category_selected(self, interaction: discord.Interaction):
-        category = self.select.values[0]
-        await WarehouseView.show_warehouse(interaction, category)
+# ========== ОТДЕЛЬНАЯ ПАНЕЛЬ РОЛЕЙ ==========
 
-# ========== ОБНОВЛЕННАЯ ГЛАВНАЯ ПАНЕЛЬ ==========
-
-class MainPanelView(View):
+class RolesPanel(View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="УПРАВЛЕНИЕ РОЛЯМИ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="main_roles", row=0)
-    async def roles_button(self, interaction: discord.Interaction, button: Button):
+    @discord.ui.button(label="СОЗДАТЬ КОМАНДУ", style=discord.ButtonStyle.primary, emoji="🎮", row=0)
+    async def create_command(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title="🎮 Создание команды",
+            description="Функция в разработке...",
+            color=0x5865F2
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="АКТИВНЫЕ КОМАНДЫ", style=discord.ButtonStyle.secondary, emoji="📊", row=0)
+    async def active_commands(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title="📊 Активные команды",
+            description="Функция в разработке...",
+            color=0x3498db
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="БЫСТРАЯ КОМАНДА", style=discord.ButtonStyle.success, emoji="⚡", row=1)
+    async def quick_command(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title="⚡ Быстрая команда",
+            description="Функция в разработке...",
+            color=0x00ff00
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="ГЛАВНАЯ", style=discord.ButtonStyle.secondary, emoji="🏠", row=1)
+    async def main_menu(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title="🏠 Главное меню",
+            description="Выберите панель для управления:",
+            color=0x5865F2
+        )
+        
+        view = MainMenuView()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+# ========== ГЛАВНОЕ МЕНЮ ==========
+
+class MainMenuView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="УПРАВЛЕНИЕ РОЛЯМИ", style=discord.ButtonStyle.primary, emoji="🎮", row=0)
+    async def roles_panel(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title="🎮 Управление ролями",
             description="Выберите действие:",
             color=0x5865F2
         )
         
-        embed.add_field(
-            name="🎮 СОЗДАТЬ КОМАНДУ",
-            value="Создать команду для выдачи роли с настройками",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="📊 АКТИВНЫЕ КОМАНДЫ", 
-            value="Просмотр всех активных команд и их статуса",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="⚡ БЫСТРАЯ КОМАНДА",
-            value="Создать команду на 24 часа без ограничений",
-            inline=False
-        )
-        
-        view = MainRoleView()
+        view = RolesPanel()
         await interaction.response.edit_message(embed=embed, view=view)
     
-    @discord.ui.button(label="УЧЕТ СКЛАДА", style=discord.ButtonStyle.success, emoji="📦", custom_id="main_warehouse", row=0)
-    async def warehouse_button(self, interaction: discord.Interaction, button: Button):
-        await WarehouseView.show_warehouse(interaction)
+    @discord.ui.button(label="УЧЕТ СКЛАДА", style=discord.ButtonStyle.success, emoji="📦", row=0)
+    async def warehouse_panel(self, interaction: discord.Interaction, button: Button):
+        await WarehousePanel.show_warehouse(interaction)
     
-    @discord.ui.button(label="НАСТРОЙКИ", style=discord.ButtonStyle.secondary, emoji="⚙️", custom_id="main_settings", row=1)
-    async def settings_button(self, interaction: discord.Interaction, button: Button):
+    @discord.ui.button(label="НАСТРОЙКИ", style=discord.ButtonStyle.secondary, emoji="⚙️", row=1)
+    async def settings_panel(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
-            title="⚙️ Настройки системы",
-            description="Настройки бота и сервера:",
-            color=0x00ff00
+            title="⚙️ Настройки",
+            description="Раздел в разработке...",
+            color=0x95a5a6
         )
-        
-        embed.add_field(
-            name="🔧 Конфигурация",
-            value="Настройки системы",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="🛡️ Безопасность",
-            value="Настройки прав доступа",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="📈 Логирование",
-            value="Настройки журналирования",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="🔄 В разработке",
-            value="Настройки будут доступны в следующем обновлении",
-            inline=False
-        )
-        
         await interaction.response.send_message(embed=embed, ephemeral=True)
     
-    @discord.ui.button(label="ПОМОЩЬ", style=discord.ButtonStyle.danger, emoji="❓", custom_id="main_help", row=1)
-    async def help_button(self, interaction: discord.Interaction, button: Button):
+    @discord.ui.button(label="ПОМОЩЬ", style=discord.ButtonStyle.danger, emoji="❓", row=1)
+    async def help_panel(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
-            title="📋 Помощь по боту",
-            description="Доступные функции:",
-            color=0x5865F2
+            title="❓ Помощь",
+            description="**Доступные команды:**\n\n`!панель` - Создать главную панель\n`!склад` - Создать панель склада\n`!роли` - Создать панель ролей",
+            color=0xe74c3c
         )
-        
-        embed.add_field(
-            name="🎮 Управление ролями",
-            value="Создание команд для выдачи ролей",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="📦 Учет склада", 
-            value="Управление товарами и запасами",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="📊 Функции склада",
-            value="• Добавление/удаление товаров\n• Приход/расход\n• Контроль минимального запаса\n• История движений\n• Категории",
-            inline=False
-        )
-        
         await interaction.response.send_message(embed=embed, ephemeral=True)
-
-# ========== СИСТЕМА РОЛЕЙ (упрощенная версия) ==========
-
-class MainRoleView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-    
-    @discord.ui.button(label="СОЗДАТЬ КОМАНДУ", style=discord.ButtonStyle.primary, emoji="🎮", custom_id="create_link_btn", row=0)
-    async def create_link_button(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message("🔄 Система ролей в разработке...", ephemeral=True)
-    
-    @discord.ui.button(label="АКТИВНЫЕ КОМАНДЫ", style=discord.ButtonStyle.secondary, emoji="📊", custom_id="active_links_btn", row=0)
-    async def active_links_button(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message("🔄 Система ролей в разработке...", ephemeral=True)
-    
-    @discord.ui.button(label="БЫСТРАЯ КОМАНДА", style=discord.ButtonStyle.success, emoji="⚡", custom_id="quick_link_btn", row=1)
-    async def quick_link_button(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message("🔄 Система ролей в разработке...", ephemeral=True)
-    
-    @discord.ui.button(label="НАЗАД", style=discord.ButtonStyle.secondary, emoji="🔙", custom_id="back_btn", row=1)
-    async def back_button(self, interaction: discord.Interaction, button: Button):
-        embed = discord.Embed(
-            title="⚙️ Панель управления сервером",
-            description="Выберите раздел для управления:",
-            color=0x5865F2
-        )
-        
-        view = MainPanelView()
-        await interaction.response.edit_message(embed=embed, view=view)
 
 # ========== КОМАНДЫ БОТА ==========
 
@@ -858,8 +649,9 @@ async def on_ready():
     print(f'📊 Подключен к {len(bot.guilds)} серверам')
     
     # Регистрируем постоянные кнопки
-    bot.add_view(MainPanelView())
-    bot.add_view(MainRoleView())
+    bot.add_view(MainMenuView())
+    bot.add_view(RolesPanel())
+    bot.add_view(WarehousePanel())
     
     # Устанавливаем статус
     try:
@@ -874,8 +666,8 @@ async def on_ready():
 async def панель(ctx):
     """Создать главную панель управления"""
     embed = discord.Embed(
-        title="⚙️ Панель управления сервером",
-        description="Выберите раздел для управления:",
+        title="🏠 Главное меню",
+        description="Выберите панель для управления:",
         color=0x5865F2
     )
     
@@ -886,7 +678,7 @@ async def панель(ctx):
     )
     embed.add_field(
         name="📦 УЧЕТ СКЛАДА", 
-        value="Управление товарами и запасами", 
+        value="Управление предметами и запасами", 
         inline=True
     )
     embed.add_field(
@@ -900,14 +692,98 @@ async def панель(ctx):
         inline=True
     )
     
-    view = MainPanelView()
+    view = MainMenuView()
     message = await ctx.send(embed=embed, view=view)
     
     try:
         await message.pin()
-        await ctx.send("✅ Панель создана и закреплена!", delete_after=5)
+        await ctx.send("✅ Главная панель создана и закреплена!", delete_after=5)
     except:
-        await ctx.send("✅ Панель создана! (Не удалось закрепить)", delete_after=5)
+        await ctx.send("✅ Главная панель создана! (Не удалось закрепить)", delete_after=5)
+    
+    await ctx.message.delete()
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def склад(ctx):
+    """Создать панель учета склада"""
+    embed = discord.Embed(
+        title="📦 Учет склада",
+        description="Управление предметами и запасами:",
+        color=0x3498db
+    )
+    
+    embed.add_field(
+        name="📦 ДОБАВИТЬ", 
+        value="Добавить новый предмет", 
+        inline=True
+    )
+    embed.add_field(
+        name="📋 ПРЕДМЕТЫ", 
+        value="Просмотр всех предметов", 
+        inline=True
+    )
+    embed.add_field(
+        name="📊 ИСТОРИЯ", 
+        value="История движений", 
+        inline=True
+    )
+    embed.add_field(
+        name="🏠 ГЛАВНАЯ", 
+        value="Вернуться в главное меню", 
+        inline=True
+    )
+    
+    view = WarehousePanel()
+    message = await ctx.send(embed=embed, view=view)
+    
+    try:
+        await message.pin()
+        await ctx.send("✅ Панель склада создана и закреплена!", delete_after=5)
+    except:
+        await ctx.send("✅ Панель склада создана! (Не удалось закрепить)", delete_after=5)
+    
+    await ctx.message.delete()
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def роли(ctx):
+    """Создать панель управления ролями"""
+    embed = discord.Embed(
+        title="🎮 Управление ролями",
+        description="Создание команд для выдачи ролей:",
+        color=0x5865F2
+    )
+    
+    embed.add_field(
+        name="🎮 СОЗДАТЬ КОМАНДУ", 
+        value="Создать команду для роли", 
+        inline=True
+    )
+    embed.add_field(
+        name="📊 АКТИВНЫЕ КОМАНДЫ", 
+        value="Просмотр активных команд", 
+        inline=True
+    )
+    embed.add_field(
+        name="⚡ БЫСТРАЯ КОМАНДА", 
+        value="Быстрое создание команды", 
+        inline=True
+    )
+    embed.add_field(
+        name="🏠 ГЛАВНАЯ", 
+        value="Вернуться в главное меню", 
+        inline=True
+    )
+    
+    view = RolesPanel()
+    message = await ctx.send(embed=embed, view=view)
+    
+    try:
+        await message.pin()
+        await ctx.send("✅ Панель ролей создана и закреплена!", delete_after=5)
+    except:
+        await ctx.send("✅ Панель ролей создана! (Не удалось закрепить)", delete_after=5)
     
     await ctx.message.delete()
 
