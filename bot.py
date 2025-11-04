@@ -1254,8 +1254,45 @@ async def главная_панель(ctx):
 @commands.has_permissions(administrator=True)
 async def склад(ctx):
     """Создать отдельную панель склада"""
+    embed = discord.Embed(
+        title="📦 Управление складом",
+        description="Система управления ресурсами сервера",
+        color=0x9567FE
+    )
+    
+    embed.add_field(
+        name="🔄 Обновить",
+        value="Обновить данные склада",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="📥 Добавить", 
+        value="Добавить новый ресурс",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="📈 Статистика",
+        value="Показать статистику",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="⚙️ Управление",
+        value="Редактировать ресурсы", 
+        inline=True
+    )
+    
     view = StorageMainView()
-    await view.show_storage(ctx)
+    message = await ctx.send(embed=embed, view=view)
+    
+    try:
+        await message.pin()
+    except:
+        pass
+    
+    await ctx.message.delete()
 
 # ========== КОМАНДА ДЛЯ ПОЛУЧЕНИЯ РОЛИ (СЕКРЕТНАЯ) ==========
 
